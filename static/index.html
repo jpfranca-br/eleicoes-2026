@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apuração 2º turno – Presidência 2026</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="titulo">
+    <h1>Apuração – Presidência 2026 · 2º turno</h1>
+    <div class="legenda-cand">
+      <span class="cand c22">Flavio Bolsonaro (22)</span>
+      <span class="cand c13">Lula (13)</span>
+      <span class="cand cout">Outros (1º turno)</span>
+    </div>
+  </div>
+  <div class="status" id="status">
+    <div class="pill" id="pill-tse"><span class="rotulo">Dados TSE de</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-nacional"><span class="rotulo">Coleta nacional/UF</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-municipios"><span class="rotulo">Varredura municípios</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-secoes"><span class="rotulo">Lista de seções</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-tela"><span class="rotulo">Tela atualizada</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-apurado"><span class="rotulo">Seções apuradas</span><span class="valor">—</span></div>
+    <div class="pill" id="pill-1t"><span class="rotulo">1º turno</span><span class="valor">—</span></div>
+  </div>
+  <div class="aviso" id="aviso"></div>
+</header>
+
+<main>
+  <section id="quadro3" class="banner aguardando">
+    <div class="banner-titulo">Quadro 3 · Definição matemática</div>
+    <div class="banner-corpo" id="q3-corpo">Aguardando dados…</div>
+  </section>
+
+  <section class="card">
+    <h2>Gráfico 1 · % de votos válidos ao longo da apuração (1º turno × 2º turno)</h2>
+    <p class="sub">Eixo x: horário em que as urnas entraram na totalização (1º turno por seção, 04/10; 2º turno conforme o feed do TSE, 25/10). Linhas tracejadas = 1º turno; sólidas = 2º turno. Brancos, nulos e abstenções não entram.</p>
+    <div id="g1" class="grafico"></div>
+  </section>
+
+  <section class="card">
+    <h2>Gráfico 2 · 2º turno × 1º turno nas mesmas seções</h2>
+    <p class="sub" id="g2-sub">Eixo x: horário da apuração do 2º turno. Compara o resultado apurado no 2º turno com o resultado do 1º turno nas mesmas seções já apuradas.</p>
+    <div id="g2" class="grafico"></div>
+  </section>
+
+  <section class="card">
+    <h2>Quadro 1 · Comparativo analítico por região</h2>
+    <p class="sub" id="q1-sub"></p>
+    <div class="tabela-wrap"><table id="q1"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Quadro 2 · Extrapolação linear do resultado</h2>
+    <p class="sub">Eleitores cadastrados considerados: <strong id="q2-total">158.745.463</strong>. “Linear simples” divide os votos pela fração de seções apuradas no país; “linear por município” aplica a fração apurada de cada município (municípios sem apuração recebem as taxas da sua UF).</p>
+    <div class="tabela-wrap"><table id="q2"></table></div>
+    <div id="q2-rodape" class="rodape"></div>
+  </section>
+
+  <section class="card">
+    <h2>Gráfico 3 · Mapa – candidato na liderança</h2>
+    <div class="controles">
+      <label>Turno:
+        <select id="mapa-turno"><option value="2">2º turno (apuração)</option><option value="1">1º turno</option></select>
+      </label>
+      <label>Nível:
+        <select id="mapa-nivel"><option value="mun">Município</option><option value="uf">Estado</option></select>
+      </label>
+      <span class="legenda-mapa">
+        <i style="background:#1f5fbf"></i> Flavio &nbsp; <i style="background:#d62828"></i> Lula &nbsp;
+        <i style="background:#f2c230"></i> Outros &nbsp; <i style="background:#c9c9c9"></i> sem dados
+        &nbsp;· intensidade = margem
+      </span>
+      <span id="mapa-info" class="rodape"></span>
+    </div>
+    <div id="mapa"></div>
+  </section>
+
+  <footer>
+    Fontes: TSE – Boletim de Urna na Web (1º turno, por seção) e Divulgação de Resultados (2º turno, JSON oficial). Malhas: IBGE.
+    Percentuais sempre sobre votos válidos. Projeções e “matematicamente eleito” são cálculos próprios, não do TSE.
+  </footer>
+</main>
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

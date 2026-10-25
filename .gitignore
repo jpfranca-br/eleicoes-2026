@@ -1,0 +1,17 @@
+# ambiente Python
+.venv/
+__pycache__/
+*.pyc
+
+# downloads brutos do TSE (5 GB, regenerados por primeiro_turno.py)
+data/raw/
+*.part
+
+# série histórica e logs locais (gerados em tempo de execução)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.txt
+data/*.png
+
+# mantidos no repositório: data/1t/ (1º turno por seção), data/geo/, data/mun_config.json
