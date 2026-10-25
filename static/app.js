@@ -257,7 +257,9 @@
     let c22 = 0, c13 = 0, cs = 0;
     Object.values(dados).forEach((d) => { if (d.lider === "22") c22++; else if (d.lider === "13") c13++; else cs++; });
     const un = nivel === "uf" ? "estados" : "municípios";
-    $("mapa-info").textContent = `Flavio lidera em ${n(c22)} ${un}, Lula em ${n(c13)}; ${n(cs)} sem dados/empate.`;
+    const total = (geo.features || []).length, lidos = Object.keys(dados).length;
+    const cobertura = lidos < total ? ` · ${n(lidos)} de ${n(total)} ${un} já consultados (a 1ª varredura leva ~25 min por causa do limite do TSE)` : ` · ${n(total)} ${un} consultados`;
+    $("mapa-info").textContent = `Flavio lidera em ${n(c22)} ${un}, Lula em ${n(c13)}; ${n(cs)} sem dados/empate${cobertura}.`;
   }
 
   // ------------------------------------------------------------ progresso do cálculo (leve, a cada 3 s)
