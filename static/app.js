@@ -200,11 +200,39 @@
     $("mapa-info").textContent = `Flavio lidera em ${n(c22)} ${un}, Lula em ${n(c13)}; ${n(cs)} sem dados/empate.`;
   }
 
+  // ------------------------------------------------------------ progresso do cálculo (leve, a cada 3 s)
+  function renderCalc(s) {
+    const c = s.calculo || {}, el = $("pill-calc");
+    el.classList.remove("calc", "ok", "erro", "replay");
+    const barra = el.querySelector(".barra i");
+    if (c.em_andamento) {
+      el.classList.add("calc");
+      pill("pill-calc", `calculando ${c.etapa_n}/${c.etapas_total}: ${c.etapa}…`);
+      barra.style.width = `${(c.etapa_n / c.etapas_total) * 100}%`;
+    } else if (c.ultima) {
+      const falta = Math.max(0, Math.round(c.intervalo - idade(c.ultima)));
+      const seg = (c.duracao || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+      pill("pill-calc", `pronto ${horaDe(c.ultima)} (${seg} s) · próximo em ${falta}s`, "ok");
+      barra.style.width = "0%";
+    } else {
+      pill("pill-calc", "aguardando primeiro cálculo");
+    }
+    const r = s.replay_progresso;
+    if (r) {
+      el.classList.add("replay");
+      el.querySelector(".valor").textContent += ` · replay ${r.hora_virtual} (${r.pct}%${r.concluido ? ", concluído" : ""})`;
+      if (!c.em_andamento) barra.style.width = `${r.pct}%`;
+    }
+  }
+  async function statusLeve() {
+    try { const s = await getJSON("/api/status"); agoraServidor = s.agora; renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
+  }
+
   // ------------------------------------------------------------ ciclo
   async function atualizar() {
     try {
       const [s, g1, g2, q] = await Promise.all([getJSON("/api/status"), getJSON("/api/grafico1"), getJSON("/api/grafico2"), getJSON("/api/quadros")]);
-      renderStatus(s); renderG1(g1); renderG2(g2); renderQ1(q.quadro1); renderQ2(q.quadro2); renderQ3(q.quadro3);
+      renderStatus(s); renderCalc(s); renderG1(g1); renderG2(g2); renderQ1(q.quadro1); renderQ2(q.quadro2); renderQ3(q.quadro3);
       renderMapa().catch((e) => { console.error(e); $("mapa-info").textContent = "mapa: " + e.message; });
       pill("pill-tela", (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)", "ok");
     } catch (e) {
@@ -219,6 +247,7 @@
     el.textContent = el.textContent.replace(/ \(próx\. \d+s\)$/, "") + ` (próx. ${Math.max(proximo, 0)}s)`;
     if (proximo <= 0) atualizar();
   }, 1000);
+  setInterval(statusLeve, 3000);
   $("mapa-turno").addEventListener("change", () => renderMapa());
   $("mapa-nivel").addEventListener("change", () => renderMapa());
   atualizar();

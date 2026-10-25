@@ -55,6 +55,17 @@ class Replay:
     def parar(self) -> None:
         self._parar.set()
 
+    def progresso(self) -> dict:
+        """Avanço do relógio virtual, para o cabeçalho da interface."""
+        total = (self.t_fim - self.t_ini).total_seconds() or 1
+        feito = (self.t_virtual - self.t_ini).total_seconds()
+        return {
+            "hora_virtual": self.t_virtual.strftime("%H:%M:%S"),
+            "pct": round(min(100.0, max(0.0, feito * 100.0 / total)), 1),
+            "velocidade": self.velocidade,
+            "concluido": self.t_virtual > self.t_fim,
+        }
+
     def _ts_feed(self, t: pd.Timestamp) -> str:
         delta = t - pd.Timestamp(config.DATA_1T)
         return (pd.Timestamp(config.DATA_2T) + delta).strftime("%Y-%m-%d %H:%M:%S")

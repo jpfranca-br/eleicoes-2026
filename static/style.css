@@ -27,6 +27,15 @@ h2 { font-size: 16px; margin: 0 0 4px; }
 .pill.erro { border-color: var(--alerta); background: #fdecec; }
 .pill.erro .valor { color: var(--alerta); }
 .pill.ok .valor { color: var(--ok); }
+.pill .barra { display: none; height: 4px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.pill .barra i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .4s; }
+.pill.calc { border-color: #e0a800; background: #fff8e1; }
+.pill.calc .valor { color: #8a6d00; }
+.pill.calc .barra { display: block; }
+.pill.calc .barra i { background: #e0a800; }
+.pill.replay .barra { display: block; }
+@keyframes pulsar { 0% { opacity: 1; } 50% { opacity: .45; } 100% { opacity: 1; } }
+.pill.calc .rotulo::after { content: " ●"; color: #e0a800; animation: pulsar 1s infinite; }
 .aviso { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
 .aviso:empty { display: none; }
 main { max-width: 1400px; margin: 0 auto; padding: 16px 20px 40px; }

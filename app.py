@@ -42,6 +42,7 @@ class Estado:
         self.erro_1t = ""
         self.municipios: list[dict[str, str]] = []
         self.replay = False
+        self.replay_obj = None
         self.ufs_limite: list[str] | None = None
         self._lock = threading.Lock()
         self._cache: dict[str, tuple[float, Any]] = {}
@@ -116,8 +117,25 @@ class Calculadora:
         self.modo, self.motivo = "municipio", "aguardando primeiro cálculo"
         self.ultima: str | None = None
         self.duracao = 0.0
+        self.em_andamento = False
+        self.etapa = ""
+        self.etapa_n = 0
+        self.etapas_total = 7
+        self.inicio_calculo: str | None = None
         self._df1t_id: int | None = None
         self._lock = threading.Lock()
+
+    def _passo(self, n: int, nome: str) -> None:
+        self.etapa_n, self.etapa = n, nome
+
+    def progresso(self) -> dict[str, Any]:
+        """Estado leve para o /api/status (sem tocar nos dados pesados)."""
+        return {
+            "ultima": self.ultima, "duracao": self.duracao, "em_andamento": self.em_andamento,
+            "etapa": self.etapa, "etapa_n": self.etapa_n, "etapas_total": self.etapas_total,
+            "inicio": self.inicio_calculo, "intervalo": config.CACHE_API_SEGUNDOS,
+            "secoes_cruzadas": int(len(self.acc)) if not self.acc.empty else 0,
+        }
 
     def iniciar(self) -> None:
         def loop():
@@ -148,36 +166,47 @@ class Calculadora:
     def calcular(self) -> None:
         with self._lock:
             t0 = time.time()
-            self._atualizar_secoes()
-            self.modo, self.motivo = analise.detectar_modo(self.secoes, E.df1t)
-            br = E.storage.ultimo_snapshot("br", "br")
-            snaps_br = E.storage.snapshots("br", "br")
-            mesmas_mun_br = E.storage.snapshots("mesmas_mun", "br")
-            ufs = E.storage.ultimos_por_codigo("uf")
-            mun = E.storage.mun_atual()
-            mesmas_mun_ufs = E.storage.ultimos_por_codigo("mesmas_mun")
-            mesmas_sec = self.acc if self.modo == "secao" else pd.DataFrame()
-            varr = E.storage.varreduras()
-            p: dict[str, Any] = {
-                "g1": analise.grafico1(E.s1t, snaps_br),
-                "g2": analise.grafico2(E.df1t, snaps_br, mesmas_mun_br, self.secoes, acc=self.acc,
-                                       modo_motivo=(self.modo, self.motivo)),
-                "quadros": {
+            self.em_andamento = True
+            self.inicio_calculo = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                self._passo(1, "seções novas do 2º turno")
+                self._atualizar_secoes()
+                self.modo, self.motivo = analise.detectar_modo(self.secoes, E.df1t)
+                self._passo(2, "leitura do banco")
+                br = E.storage.ultimo_snapshot("br", "br")
+                snaps_br = E.storage.snapshots("br", "br")
+                mesmas_mun_br = E.storage.snapshots("mesmas_mun", "br")
+                ufs = E.storage.ultimos_por_codigo("uf")
+                mun = E.storage.mun_atual()
+                mesmas_mun_ufs = E.storage.ultimos_por_codigo("mesmas_mun")
+                mesmas_sec = self.acc if self.modo == "secao" else pd.DataFrame()
+                varr = E.storage.varreduras()
+                p: dict[str, Any] = {"br": br or {},
+                                     "ultima_varredura": varr.iloc[-1].to_dict() if not varr.empty else None}
+                self._passo(3, "gráfico 1")
+                p["g1"] = analise.grafico1(E.s1t, snaps_br)
+                self._passo(4, "gráfico 2 (mesmas seções)")
+                p["g2"] = analise.grafico2(E.df1t, snaps_br, mesmas_mun_br, self.secoes, acc=self.acc,
+                                           modo_motivo=(self.modo, self.motivo))
+                self._passo(5, "quadros 1, 2 e 3")
+                p["quadros"] = {
                     "quadro1": analise.quadro1(E.uf_1t, ufs, br, self.modo, mesmas_sec, mesmas_mun_ufs),
                     "quadro2": analise.quadro2(br, ufs, mun),
                     "quadro3": analise.quadro3(br),
                     "modo": self.modo, "motivo": self.motivo,
-                },
-                "mapa-2-mun": analise.mapa_municipios(2, E.mun_1t, mun, E.municipios),
-                "mapa-2-uf": analise.mapa_ufs(2, E.uf_1t, ufs),
-                "mapa-1-mun": analise.mapa_municipios(1, E.mun_1t, mun, E.municipios),
-                "mapa-1-uf": analise.mapa_ufs(1, E.uf_1t, ufs),
-                "br": br or {},
-                "ultima_varredura": varr.iloc[-1].to_dict() if not varr.empty else None,
-            }
-            self.payloads = p
-            self.duracao = round(time.time() - t0, 2)
-            self.ultima = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                self._passo(6, "mapas")
+                p["mapa-2-mun"] = analise.mapa_municipios(2, E.mun_1t, mun, E.municipios)
+                p["mapa-2-uf"] = analise.mapa_ufs(2, E.uf_1t, ufs)
+                p["mapa-1-mun"] = analise.mapa_municipios(1, E.mun_1t, mun, E.municipios)
+                p["mapa-1-uf"] = analise.mapa_ufs(1, E.uf_1t, ufs)
+                self._passo(7, "publicando")
+                self.payloads = p
+                self.duracao = round(time.time() - t0, 2)
+                self.ultima = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+            finally:
+                self.em_andamento = False
+                self.etapa = ""
 
     def payload(self, chave: str) -> Any:
         if not self.payloads:
@@ -208,7 +237,8 @@ def api_status():
         ultima = E.calc.payload("ultima_varredura")
         return {
             "agora": config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S"),
-            "calculo": {"ultima": E.calc.ultima, "duracao": E.calc.duracao},
+            "calculo": E.calc.progresso(),
+            "replay_progresso": E.replay_obj.progresso() if E.replay_obj else None,
             "fuso": config.FUSO_HORARIO,
             "replay": E.replay,
             "ts_feed_br": br.get("ts_feed"),
@@ -303,7 +333,8 @@ def main() -> None:
             time.sleep(1)
         if E.df1t.empty:
             raise SystemExit("replay: nenhum dado do 1º turno disponível (rode primeiro_turno.py)")
-        Replay(E.storage, E.df1t, args.velocidade, args.forcar_2_candidatos, args.lote, args.inicio).iniciar()
+        E.replay_obj = Replay(E.storage, E.df1t, args.velocidade, args.forcar_2_candidatos, args.lote, args.inicio)
+        E.replay_obj.iniciar()
     else:
         from coletor_2t import Coletor
         def iniciar_coletor():
