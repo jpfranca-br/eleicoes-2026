@@ -17,10 +17,38 @@ Percentuais sempre sobre votos válidos (brancos, nulos e abstenções excluído
 
 ## Instalação
 
+### Obter o código (git clone)
+
+O repositório já inclui os dados do 1º turno processados por seção (`data/1t/`), as malhas do IBGE e a configuração de municípios. Depois do clone não é preciso baixar os 5 GB do TSE.
+
+Pré-requisito: git instalado (Windows: https://git-scm.com/download/win; Debian/Ubuntu: `sudo apt install -y git`).
+
+Windows (PowerShell):
+
+```powershell
+cd C:\Users\$env:USERNAME\Desktop
+git clone https://github.com/jpfranca-br/eleicoes-2026.git
+cd eleicoes-2026
+```
+
+Linux:
+
+```bash
+sudo git clone https://github.com/jpfranca-br/eleicoes-2026.git /opt/eleicoes
+sudo chown -R $USER:$USER /opt/eleicoes
+cd /opt/eleicoes
+```
+
+Para atualizar uma instalação existente com a versão mais nova do GitHub:
+
+```bash
+git pull
+```
+
 ### Windows (PowerShell)
 
 ```powershell
-cd C:\caminho\para\eleicoes
+cd C:\Users\$env:USERNAME\Desktop\eleicoes-2026
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -33,7 +61,7 @@ Se o PowerShell bloquear a ativação do venv: `Set-ExecutionPolicy -Scope Curre
 
 ```bash
 sudo apt update && sudo apt install -y python3 python3-venv python3-pip
-cd /opt/eleicoes            # ou a pasta onde copiou o projeto
+cd /opt/eleicoes            # pasta do git clone
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -44,7 +72,9 @@ Em outras distribuições (Fedora/RHEL: `sudo dnf install python3 python3-pip`) 
 
 ## Como rodar
 
-### 1. Baixar e processar o 1º turno (uma vez)
+### 1. Baixar e processar o 1º turno (opcional)
+
+Quem fez o git clone já tem os dados e pode pular este passo. Ele serve para regerar os arquivos a partir do TSE:
 
 ```bash
 python primeiro_turno.py            # todas as 28 UFs (~5 GB de download; conexão rápida: poucos minutos)
