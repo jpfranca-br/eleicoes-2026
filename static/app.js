@@ -22,13 +22,22 @@
   // no replay, o "agora" é o relógio virtual, avançando na velocidade da simulação entre duas leituras
   function agoraVirtual() {
     if (!replay) return null;
-    const decorrido = replay.emPausa ? 0 : (Date.now() - replay.recebidoEm) * replay.velocidade;
-    return replay.tsVirtualMs + decorrido;
+    // extrapola com a taxa efetiva medida no servidor; nunca recua (pequenas correções esperam o relógio alcançar)
+    const decorrido = replay.emPausa ? 0 : (Date.now() - replay.recebidoEm) * replay.taxa;
+    const v = replay.tsVirtualMs + decorrido;
+    if (v < replay.ultimoMostrado && replay.ultimoMostrado - v < 5 * 60 * 1000) return replay.ultimoMostrado;
+    replay.ultimoMostrado = v;
+    return v;
   }
   function sincronizar(s) {
     agoraServidor = s.agora; agoraRecebidoEm = Date.now();
     const r = s.replay_progresso;
-    replay = r && r.ts_virtual ? { tsVirtualMs: paraMs(r.ts_virtual), velocidade: r.velocidade, emPausa: r.em_pausa || r.concluido, recebidoEm: Date.now() } : null;
+    const anterior = replay;
+    replay = r && r.ts_virtual ? {
+      tsVirtualMs: paraMs(r.ts_virtual), velocidade: r.velocidade, taxa: r.taxa_efetiva || r.velocidade,
+      emPausa: r.em_pausa || r.concluido, recebidoEm: Date.now(),
+      ultimoMostrado: anterior && anterior.ultimoMostrado && paraMs(r.ts_virtual) >= anterior.tsVirtualMs ? anterior.ultimoMostrado : 0,
+    } : null;
   }
   function hhmmss(ms) {
     const d = new Date(ms);

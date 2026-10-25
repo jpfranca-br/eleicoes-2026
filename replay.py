@@ -32,6 +32,8 @@ class Replay:
         self.loop = loop
         self.rodada = 1
         self.em_pausa = False
+        self.taxa_efetiva = velocidade  # segundos virtuais por segundo real, medidos (tiques podem passar de 1 s)
+        self._ultimo_tique = None       # (time.monotonic(), t_virtual) do tique anterior
         self.forcar_2 = forcar_2
         self.lote = lote
         self._parar = threading.Event()
@@ -71,6 +73,8 @@ class Replay:
             "ts_virtual": self._ts_feed(min(self.t_virtual, self.t_fim)),  # mesmo eixo de datas do ts_feed
             "pct": round(min(100.0, max(0.0, feito * 100.0 / total)), 1),
             "velocidade": self.velocidade,
+            "taxa_efetiva": round(self.taxa_efetiva, 1),
+            "agora": config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S"),  # mesmo instante do ts_virtual
             "concluido": self.t_virtual > self.t_fim,
             "loop": self.loop, "rodada": self.rodada, "em_pausa": self.em_pausa, "pausa": self.PAUSA_LOOP,
         }
@@ -92,6 +96,7 @@ class Replay:
                 break
             self.storage.limpar()           # zera a série; a Calculadora detecta pela "geração" do banco
             self.t_virtual = self.t_ini
+            self._ultimo_tique = None       # o relógio virtual volta: não medir taxa entre rodadas
             self.rodada += 1
         log.info("replay encerrado")
 
@@ -117,8 +122,18 @@ class Replay:
                     [(r.uf, r.cd_mun, r.zona, r.secao, t.strftime("%d/%m/%Y"), t.strftime("%H:%M:%S"))
                      for r in novos.itertuples(index=False)])
             tick += 1
-            self.t_virtual = t + timedelta(seconds=self.velocidade)
+            # avança pelo tempo real decorrido (>= 1 s): com o país inteiro um tique pode levar 2-3 s e,
+            # sem isso, o relógio virtual andaria mais devagar que a velocidade prometida
             time.sleep(max(0.0, 1.0 - (time.time() - t0)))
+            decorrido = max(1.0, time.time() - t0)
+            agora_m = time.monotonic()
+            if self._ultimo_tique:
+                dt_real = agora_m - self._ultimo_tique[0]
+                if dt_real > 0:
+                    medida = (t - self._ultimo_tique[1]).total_seconds() / dt_real
+                    self.taxa_efetiva = 0.7 * self.taxa_efetiva + 0.3 * medida
+            self._ultimo_tique = (agora_m, t)
+            self.t_virtual = t + timedelta(seconds=self.velocidade * decorrido)
         if self.lote and not self._parar.is_set():
             t = self.t_virtual
             self.storage.gravar_secoes(

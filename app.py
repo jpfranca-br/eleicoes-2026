@@ -261,9 +261,6 @@ def api_status():
         modo, motivo = E.calc.modo, E.calc.motivo
         ultima = E.calc.payload("ultima_varredura")
         return {
-            "agora": config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S"),
-            "calculo": E.calc.progresso(),
-            "replay_progresso": E.replay_obj.progresso() if E.replay_obj else None,
             "fuso": config.FUSO_HORARIO,
             "replay": E.replay,
             "ts_feed_br": br.get("ts_feed"),
@@ -283,7 +280,12 @@ def api_status():
             "candidatos": config.CANDIDATOS, "cores": config.CORES,
             "total_eleitores": analise.total_eleitores(br)[0], "origem_total": analise.total_eleitores(br)[1],
         }
-    return jsonify(E.cache("status", calc, segundos=5))
+    d = dict(E.cache("status", calc, segundos=5))
+    # relógios e progresso saem sempre frescos (fora do cache), senão a tela "volta no tempo" ao sincronizar
+    d["agora"] = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+    d["calculo"] = E.calc.progresso()
+    d["replay_progresso"] = E.replay_obj.progresso() if E.replay_obj else None
+    return jsonify(d)
 
 
 @app.route("/api/grafico1")
