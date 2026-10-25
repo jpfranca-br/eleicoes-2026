@@ -313,15 +313,26 @@ def quadro1(uf_1t: pd.DataFrame, ufs_atual: pd.DataFrame, br_atual: dict | None,
     return {"modo": modo, "linhas": [linhas[r] for r in regioes]}
 
 
+def total_eleitores(br: dict | None) -> tuple[int, str]:
+    """(eleitorado apto, origem). Usa o e.te do TSE, salvo valor fixo em config."""
+    if config.TOTAL_ELEITORES:
+        return int(config.TOTAL_ELEITORES), "fixo (config.py)"
+    te = int((br or {}).get("te") or 0)
+    if te > 0:
+        return te, "TSE (campo e.te)"
+    return int(config.TOTAL_ELEITORES_RESERVA), "reserva (feed ainda sem dados)"
+
+
 # ------------------------------------------------------------------ Quadro 2
 def quadro2(br: dict | None, ufs_atual: pd.DataFrame, mun_atual: pd.DataFrame) -> dict[str, Any]:
-    total = config.TOTAL_ELEITORES
+    total, origem_total = total_eleitores(br)
     br = br or {}
     st, ts = int(br.get("st", 0)), int(br.get("ts", 0))
     frac = st / ts if ts else 0.0
     est = int(br.get("est", 0))
     out: dict[str, Any] = {
-        "total_eleitores": total, "restantes": max(0, total - est), "eleitores_apurados": est,
+        "total_eleitores": total, "origem_total": origem_total, "restantes": max(0, total - est),
+        "eleitores_apurados": est,
         "pst": pct(st, ts), "secoes_apuradas": st, "secoes_total": ts,
         "apurado": _linha(br.get("v22", 0), br.get("v13", 0), br.get("v_outros", 0), br.get("vv", 0),
                           br.get("vb", 0), br.get("vn", 0), br.get("tv", 0), st, ts),
@@ -373,7 +384,8 @@ def quadro3(br: dict | None) -> dict[str, Any]:
     br = br or {}
     vv = int(br.get("vv", 0))
     est = int(br.get("est", 0))
-    restantes = max(0, config.TOTAL_ELEITORES - est)
+    total, origem_total = total_eleitores(br)
+    restantes = max(0, total - est)
     meta = (vv + restantes) // 2 + 1  # 50% + 1 dos válidos possíveis (pior caso)
     faltam = {c: int(meta - int(br.get(f"v{c}", 0))) for c in ("22", "13")}
     eleito = next((c for c, f in faltam.items() if f <= 0), None)
@@ -382,4 +394,5 @@ def quadro3(br: dict | None) -> dict[str, Any]:
         "faltam": {c: max(0, f) for c, f in faltam.items()},
         "votos": {c: int(br.get(f"v{c}", 0)) for c in ("22", "13")},
         "restantes": restantes, "meta": int(meta), "vv": vv, "ts_feed": br.get("ts_feed"),
+        "total_eleitores": total, "origem_total": origem_total,
     }

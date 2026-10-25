@@ -23,8 +23,10 @@ PLEITO_2T = "3221"
 DATA_1T = "2026-10-04"
 DATA_2T = "2026-10-25"
 
-# Total de eleitores informado pelo usuário (TSE divulga 158.745.502)
-TOTAL_ELEITORES = 158_745_463
+# Eleitorado apto usado nos Quadros 2 e 3. None = usar o campo e.te do feed nacional do TSE
+# (158.745.502 em 25/10/2026). Informe um inteiro para forçar um valor fixo.
+TOTAL_ELEITORES: int | None = None
+TOTAL_ELEITORES_RESERVA = 158_745_502  # usado só se o feed ainda não tiver respondido
 
 CANDIDATOS = {"22": "Flavio Bolsonaro", "13": "Lula"}
 OUTROS = "outros"

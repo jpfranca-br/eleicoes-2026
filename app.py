@@ -145,7 +145,8 @@ def api_status():
             "respostas_429": tse_client.limitador.total_429,
             "modo_grafico2": modo, "motivo_grafico2": motivo,
             "secoes_2t_vistas": int(len(E.storage.secoes_2t_chaves())),
-            "candidatos": config.CANDIDATOS, "cores": config.CORES, "total_eleitores": config.TOTAL_ELEITORES,
+            "candidatos": config.CANDIDATOS, "cores": config.CORES,
+            "total_eleitores": analise.total_eleitores(br)[0], "origem_total": analise.total_eleitores(br)[1],
         }
     return jsonify(E.cache("status", calc))
 

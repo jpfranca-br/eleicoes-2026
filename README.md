@@ -159,8 +159,8 @@ Cabeçalho: hora dos dados do TSE, hora da última coleta de cada rotina (nacion
   - *município* (fallback): se a lista vier em lote ou ainda estiver vazia, usa os votos do 1º turno de cada município × fração de seções já apuradas no 2º turno naquele município.
 - **Gráfico 3** – mapa (Leaflet + malhas IBGE) por município ou estado, cor do candidato na liderança, intensidade = margem. Alterna 1º/2º turno.
 - **Quadro 1** – tabela por região (Norte, Nordeste, Centro-Oeste, Sudeste, Sul, Exterior, Brasil): 1º turno completo, 2º turno apurado (votos, %, brancos, nulos, total apurado, seções), 1º turno nas mesmas seções e Δ em pontos percentuais.
-- **Quadro 2** – extrapolação linear com 158.745.463 eleitores: *simples* (votos ÷ fração de seções apuradas no país) e *por município* (cada município escalado pela própria fração apurada; municípios sem apuração recebem as taxas de comparecimento/validade e os percentuais da sua UF).
-- **Quadro 3** – “matematicamente eleito”: restantes = 158.745.463 − eleitores das seções já totalizadas (pior caso: todos votam válido no adversário). Faltam = ⌊(válidos + restantes)/2⌋ + 1 − votos do candidato. Quando ≤ 0, o banner muda de cor.
+- **Quadro 2** – extrapolação linear sobre o eleitorado apto informado pelo TSE (campo `e.te` do arquivo nacional; 158.745.502 em 25/10/2026). Para forçar um valor fixo, defina `TOTAL_ELEITORES` em `config.py`; a interface mostra a origem do número em uso. *Simples* (votos ÷ fração de seções apuradas no país) e *por município* (cada município escalado pela própria fração apurada; municípios sem apuração recebem as taxas de comparecimento/validade e os percentuais da sua UF).
+- **Quadro 3** – “matematicamente eleito”: restantes = eleitorado apto (TSE) − eleitores das seções já totalizadas (pior caso: todos votam válido no adversário). Faltam = ⌊(válidos + restantes)/2⌋ + 1 − votos do candidato. Quando ≤ 0, o banner muda de cor.
 
 ## Fontes de dados
 

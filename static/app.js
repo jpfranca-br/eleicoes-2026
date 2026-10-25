@@ -128,6 +128,7 @@
 
   function renderQ2(q) {
     $("q2-total").textContent = n(q.total_eleitores);
+    $("q2-origem").textContent = `(origem: ${q.origem_total})`;
     const col = (t, d) => d ? `<td>${n(d.v22)}<small>${fmtPct(d.p22)}</small></td><td>${n(d.v13)}<small>${fmtPct(d.p13)}</small></td><td>${n(d.vv)}</td><td class="${d.vencedor === "22" ? "lider22" : d.vencedor === "13" ? "lider13" : ""}">${d.vencedor ? NOMES[d.vencedor] : "—"}</td>` : `<td colspan="4">aguardando apuração</td>`;
     $("q2").innerHTML = `<thead><tr><th></th><th>Flavio (22)</th><th>Lula (13)</th><th>Válidos</th><th>Vencedor</th></tr></thead><tbody>
       <tr><td>Apurado até agora (${fmtPct(q.pst)} das seções)</td>${col("apurado", { ...q.apurado, vencedor: q.apurado.v22 > q.apurado.v13 ? "22" : q.apurado.v13 > q.apurado.v22 ? "13" : null })}</tr>
@@ -141,7 +142,7 @@
   function renderQ3(q) {
     const el = $("quadro3"); el.classList.remove("aguardando", "eleito22", "eleito13");
     const f22 = q.faltam["22"], f13 = q.faltam["13"];
-    const detalhe = `Meta (50% + 1 dos válidos possíveis): ${n(q.meta)} votos · válidos apurados: ${n(q.vv)} · eleitores restantes (pior caso): ${n(q.restantes)}` + (q.ts_feed ? ` · dados do TSE de ${horaDe(q.ts_feed)}` : "");
+    const detalhe = `Meta (50% + 1 dos válidos possíveis): ${n(q.meta)} votos · válidos apurados: ${n(q.vv)} · eleitores restantes (pior caso): ${n(q.restantes)} de ${n(q.total_eleitores)} aptos (${q.origem_total})` + (q.ts_feed ? ` · dados do TSE de ${horaDe(q.ts_feed)}` : "");
     if (q.eleito) {
       el.classList.add("eleito" + q.eleito);
       $("q3-corpo").innerHTML = `<span class="grande">${q.nome_eleito} está MATEMATICAMENTE ELEITO</span>
