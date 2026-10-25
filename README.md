@@ -35,7 +35,7 @@ Linux:
 
 ```bash
 sudo git clone https://github.com/jpfranca-br/eleicoes-2026.git /opt/eleicoes
-sudo chown -R $USER:$USER /opt/eleicoes
+sudo chown -R $USER:$USER /opt/eleicoes     # a pasta fica com o seu usuário; use o mesmo usuário no serviço systemd
 cd /opt/eleicoes
 ```
 
@@ -121,7 +121,7 @@ O replay usa um banco separado (`data/replay.db`) e sempre começa do zero. A p�
 sudo ufw allow 8000/tcp        # se usar ufw
 ```
 
-Serviço systemd (`/etc/systemd/system/eleicoes.service`):
+Serviço systemd (`/etc/systemd/system/eleicoes.service`). **O `User=` deve ser o mesmo usuário dono da pasta** (o que fez o `git clone` e o `chown` acima), senão o serviço não consegue criar o banco em `data/` e fica reiniciando com `status=1/FAILURE`. Troque `jpfranca` pelo seu login:
 
 ```ini
 [Unit]
@@ -130,7 +130,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=www-data
+User=jpfranca
 WorkingDirectory=/opt/eleicoes
 ExecStart=/opt/eleicoes/.venv/bin/python app.py --porta 8000
 Restart=always
@@ -141,11 +141,26 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo chown -R www-data:www-data /opt/eleicoes
 sudo systemctl daemon-reload
 sudo systemctl enable --now eleicoes
-sudo journalctl -u eleicoes -f      # acompanhar o log
+systemctl status eleicoes --no-pager | head -5   # deve mostrar "active (running)"
+sudo journalctl -u eleicoes -f                   # acompanhar o log (precisa de sudo)
 ```
+
+Para atualizar o servidor depois de um `git push`:
+
+```bash
+cd /opt/eleicoes
+git pull
+source .venv/bin/activate && pip install -r requirements.txt
+sudo systemctl restart eleicoes
+```
+
+Problemas comuns:
+
+- `fatal: detected dubious ownership in repository` no `git pull`: a pasta pertence a outro usuário (clone feito com `sudo`). Corrija com `sudo chown -R $USER:$USER /opt/eleicoes`.
+- Serviço em `activating (auto-restart)` com `status=1/FAILURE`: quase sempre o `User=` do serviço não é o dono da pasta. Veja o erro com `sudo journalctl -u eleicoes -n 30 --no-pager`.
+- Horários do cabeçalho 3 h à frente: versão antiga do código. Faça `git pull` e reinicie; o painel usa sempre o horário de Brasília, mesmo com o servidor em UTC.
 
 O servidor embutido do Flask é suficiente para poucos usuários simultâneos. Para expor na internet, coloque um nginx na frente (proxy para `127.0.0.1:8000`).
 
