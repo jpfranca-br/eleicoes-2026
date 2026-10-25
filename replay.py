@@ -20,11 +20,18 @@ log = logging.getLogger(__name__)
 
 
 class Replay:
+    PAUSA_LOOP = 20  # s parado no resultado final antes de recomeçar (modo --loop)
+
     def __init__(self, storage: Storage, df1t: pd.DataFrame, velocidade: float = 60.0,
-                 forcar_2: bool = False, lote: bool = False, inicio_hora: str | None = None):
-        """velocidade: segundos virtuais por segundo real. lote: publica as seções só no fim."""
+                 forcar_2: bool = False, lote: bool = False, inicio_hora: str | None = None,
+                 loop: bool = False):
+        """velocidade: segundos virtuais por segundo real. lote: publica as seções só no fim.
+        loop: ao terminar, zera o banco e recomeça (demonstração contínua)."""
         self.storage = storage
         self.velocidade = velocidade
+        self.loop = loop
+        self.rodada = 1
+        self.em_pausa = False
         self.forcar_2 = forcar_2
         self.lote = lote
         self._parar = threading.Event()
@@ -64,6 +71,7 @@ class Replay:
             "pct": round(min(100.0, max(0.0, feito * 100.0 / total)), 1),
             "velocidade": self.velocidade,
             "concluido": self.t_virtual > self.t_fim,
+            "loop": self.loop, "rodada": self.rodada, "em_pausa": self.em_pausa, "pausa": self.PAUSA_LOOP,
         }
 
     def _ts_feed(self, t: pd.Timestamp) -> str:
@@ -71,6 +79,22 @@ class Replay:
         return (pd.Timestamp(config.DATA_2T) + delta).strftime("%Y-%m-%d %H:%M:%S")
 
     def _loop(self) -> None:
+        while True:
+            self._rodada()
+            if not self.loop or self._parar.is_set():
+                break
+            log.info("replay: concluído; reinicia em %d s (modo --loop, rodada %d)", self.PAUSA_LOOP, self.rodada + 1)
+            self.em_pausa = True
+            self._parar.wait(self.PAUSA_LOOP)
+            self.em_pausa = False
+            if self._parar.is_set():
+                break
+            self.storage.limpar()           # zera a série; a Calculadora detecta pela "geração" do banco
+            self.t_virtual = self.t_ini
+            self.rodada += 1
+        log.info("replay encerrado")
+
+    def _rodada(self) -> None:
         idx = 0
         tick = 0
         acumulado = None

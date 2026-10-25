@@ -27,6 +27,9 @@ h2 { font-size: 16px; margin: 0 0 4px; }
 .pill.erro { border-color: var(--alerta); background: #fdecec; }
 .pill.erro .valor { color: var(--alerta); }
 .pill.ok .valor { color: var(--ok); }
+.pill.relogio { background: var(--ink); border-color: var(--ink); }
+.pill.relogio .rotulo { color: #b8c0cc; }
+.pill.relogio .valor { color: #fff; font-size: 16px; }
 .pill .barra { display: none; height: 4px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; }
 .pill .barra i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .4s; }
 .pill.calc { border-color: #e0a800; background: #fff8e1; }

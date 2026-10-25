@@ -123,6 +123,7 @@ class Calculadora:
         self.etapas_total = 7
         self.inicio_calculo: str | None = None
         self._df1t_id: int | None = None
+        self._geracao: int | None = None
         self._lock = threading.Lock()
 
     def _passo(self, n: int, nome: str) -> None:
@@ -148,6 +149,12 @@ class Calculadora:
         threading.Thread(target=loop, name="calculadora", daemon=True).start()
 
     def _atualizar_secoes(self) -> None:
+        if E.storage.geracao != self._geracao:  # banco foi zerado (ex.: replay --loop): recomeça do zero
+            self._geracao = E.storage.geracao
+            self.secoes = pd.DataFrame(columns=self.COLS_SECOES)
+            self.acc = pd.DataFrame()
+            self.ultimo_rowid = 0
+            self._df1t_id = None
         novas = E.storage.secoes_2t_desde(self.ultimo_rowid)
         if not novas.empty:
             self.ultimo_rowid = int(novas["rowid"].max())
@@ -293,6 +300,7 @@ def main() -> None:
     ap.add_argument("--inicio", default=None, help="replay: hora virtual inicial HH:MM (padrão: 1ª urna)")
     ap.add_argument("--forcar-2-candidatos", action="store_true", help="replay: redistribui 'outros' entre 22 e 13")
     ap.add_argument("--lote", action="store_true", help="replay: publica a lista de seções só no fim (testa fallback)")
+    ap.add_argument("--loop", action="store_true", help="replay: ao terminar, zera e recomeça (demonstração contínua)")
     ap.add_argument("--sem-1t", action="store_true", help="não baixar o 1º turno automaticamente")
     ap.add_argument("--ufs", help="limitar o 1º turno a estas UFs (testes), ex.: AC,RR")
     ap.add_argument("--limpar", action="store_true", help="apaga a série histórica (banco) antes de iniciar")
@@ -333,7 +341,8 @@ def main() -> None:
             time.sleep(1)
         if E.df1t.empty:
             raise SystemExit("replay: nenhum dado do 1º turno disponível (rode primeiro_turno.py)")
-        E.replay_obj = Replay(E.storage, E.df1t, args.velocidade, args.forcar_2_candidatos, args.lote, args.inicio)
+        E.replay_obj = Replay(E.storage, E.df1t, args.velocidade, args.forcar_2_candidatos, args.lote, args.inicio,
+                              loop=args.loop)
         E.replay_obj.iniciar()
     else:
         from coletor_2t import Coletor

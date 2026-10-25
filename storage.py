@@ -48,6 +48,7 @@ class Storage:
         self.path = Path(path or config.DB_PATH)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.geracao = 0  # sobe a cada limpar(); rowids podem recomeçar do 1 depois disso
         self._con = sqlite3.connect(str(self.path), check_same_thread=False, timeout=30)
         self._con.execute("PRAGMA journal_mode=WAL")
         self._con.execute("PRAGMA synchronous=NORMAL")
@@ -169,7 +170,9 @@ class Storage:
         return self._df("SELECT * FROM varreduras ORDER BY id")
 
     def limpar(self) -> None:
+        """Apaga tudo. Incrementa `geracao` para que caches incrementais (Calculadora) se reiniciem."""
         with self._lock:
             for t in ("snapshots", "mun_atual", "secoes_2t", "coletas", "varreduras"):
                 self._con.execute(f"DELETE FROM {t}")
             self._con.commit()
+            self.geracao += 1

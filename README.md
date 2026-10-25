@@ -99,6 +99,7 @@ python app.py --replay                       # reproduz o 1º turno como se foss
 python app.py --replay --velocidade 300      # 300 s virtuais por segundo real
 python app.py --replay --forcar-2-candidatos # redistribui "outros" entre 22 e 13 (testa o "matematicamente eleito")
 python app.py --replay --lote                # publica a lista de seções só no fim (testa o fallback por município)
+python app.py --replay --loop --forcar-2-candidatos   # demonstração contínua: ao terminar, pausa 20 s, zera e recomeça
 python app.py --replay --ufs AC,RR           # replay rápido só com algumas UFs
 ```
 
@@ -112,7 +113,7 @@ O replay usa um banco separado (`data/replay.db`) e sempre começa do zero. A p�
 | `--sem-1t` | não baixa o 1º turno automaticamente |
 | `--ufs AC,RR` | limita o 1º turno a essas UFs (testes) |
 | `--limpar` | apaga a série histórica antes de iniciar |
-| `--replay`, `--velocidade`, `--inicio HH:MM`, `--forcar-2-candidatos`, `--lote` | simulação |
+| `--replay`, `--velocidade`, `--inicio HH:MM`, `--forcar-2-candidatos`, `--lote`, `--loop` | simulação |
 | `--debug` | log detalhado |
 
 ## Linux: firewall e serviço
@@ -167,7 +168,7 @@ O servidor embutido do Flask é suficiente para poucos usuários simultâneos. P
 
 ## O que a interface mostra
 
-Cabeçalho: hora dos dados do TSE, hora da última coleta de cada rotina (nacional/UF, municípios, lista de seções), estado do cálculo no servidor (etapa em andamento com barra de progresso, ou hora/duração do último cálculo e contagem para o próximo; no replay, hora virtual e % concluído), hora da última atualização da tela, seções apuradas e situação do 1º turno. **Todos os horários são de Brasília**, o mesmo fuso dos dados do TSE, mesmo que o servidor esteja em UTC (padrão de muitas máquinas Linux) ou o navegador em outro fuso. O fuso fica em `config.FUSO_HORARIO`. Uma rotina fica vermelha se falhou ou se está há mais de 3 minutos sem sucesso.
+Cabeçalho: relógio com a hora atual de Brasília (sincronizado com o servidor), hora dos dados do TSE com “há N min” (fica vermelho no modo real se a apuração já começou e o dado está parado há mais de 10 min), hora da última coleta de cada rotina (nacional/UF, municípios, lista de seções), estado do cálculo no servidor (etapa em andamento com barra de progresso, ou hora/duração do último cálculo e contagem para o próximo; no replay, hora virtual e % concluído), hora da última atualização da tela, seções apuradas e situação do 1º turno. **Todos os horários são de Brasília**, o mesmo fuso dos dados do TSE, mesmo que o servidor esteja em UTC (padrão de muitas máquinas Linux) ou o navegador em outro fuso. O fuso fica em `config.FUSO_HORARIO`. Uma rotina fica vermelha se falhou ou se está há mais de 3 minutos sem sucesso.
 
 - **Gráfico 1** – % de votos válidos × horário em que as urnas entraram na totalização. 1º turno (tracejado, por seção, 04/10) e 2º turno (sólido, feed do TSE, 25/10) sobrepostos no mesmo eixo de horas. Hover: %, votos, seções e horário.
 - **Gráfico 2** – 2º turno × 1º turno **nas mesmas seções** apuradas. Dois modos, escolhidos automaticamente:

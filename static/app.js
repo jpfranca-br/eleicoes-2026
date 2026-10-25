@@ -14,15 +14,27 @@
   // ------------------------------------------------------------ util
   // Todos os horários vindos do servidor estão em Brasília; "agoraServidor" é a referência de tempo
   // (não o relógio do navegador), para funcionar de qualquer fuso.
-  let agoraServidor = null;
+  let agoraServidor = null, agoraRecebidoEm = 0;
   const paraMs = (ts) => new Date(ts.replace(" ", "T")).getTime();
+  // relógio local sincronizado com o servidor: hora do servidor + tempo decorrido desde a última leitura
+  function agoraEstimado() { return agoraServidor ? paraMs(agoraServidor) + (Date.now() - agoraRecebidoEm) : Date.now(); }
+  function sincronizar(s) { agoraServidor = s.agora; agoraRecebidoEm = Date.now(); }
+  function renderRelogio() {
+    const d = new Date(agoraEstimado());
+    const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0"), ss = String(d.getSeconds()).padStart(2, "0");
+    $("pill-relogio").querySelector(".valor").textContent = `${hh}:${mm}:${ss}`;
+  }
   function horaDe(ts) { // 'YYYY-MM-DD HH:MM:SS' -> 'HH:MM:SS' (com dia se não for o dia do servidor)
     if (!ts) return "—";
     const [d, h] = ts.split(" ");
     const hoje = agoraServidor ? agoraServidor.slice(0, 10) : d;
     return d === hoje ? h : `${d.slice(8, 10)}/${d.slice(5, 7)} ${h}`;
   }
-  function idade(ts) { return ts && agoraServidor ? (paraMs(agoraServidor) - paraMs(ts)) / 1000 : Infinity; }
+  function idade(ts) { return ts && agoraServidor ? (agoraEstimado() - paraMs(ts)) / 1000 : Infinity; }
+  function haQuanto(seg) { // 'há 2 min', 'há 35 s', 'há 1 h 05'
+    if (!isFinite(seg)) return ""; if (seg < 60) return `há ${Math.round(seg)} s`;
+    const m = Math.floor(seg / 60); return m < 60 ? `há ${m} min` : `há ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+  }
   function pill(id, valor, estado) {
     const el = $(id); el.querySelector(".valor").textContent = valor;
     el.classList.remove("erro", "ok"); if (estado) el.classList.add(estado);
@@ -31,8 +43,16 @@
 
   // ------------------------------------------------------------ status
   function renderStatus(s) {
-    agoraServidor = s.agora;
-    pill("pill-tse", s.ts_feed_br ? horaDe(s.ts_feed_br) : "sem dados", s.ts_feed_br ? "ok" : "");
+    sincronizar(s);
+    if (s.ts_feed_br) {
+      // no modo real, dados parados há mais de 10 min com apuração em curso ficam vermelhos
+      const seg = idade(s.ts_feed_br);
+      const parado = !s.replay && s.vv > 0 && seg > 600;
+      // no replay a hora do feed é virtual (não comparável com o relógio real)
+      pill("pill-tse", `${horaDe(s.ts_feed_br)} (${s.replay ? "virtual" : haQuanto(seg)})`, parado ? "erro" : "ok");
+    } else {
+      pill("pill-tse", "sem dados", "");
+    }
     const col = {}; (s.coletas || []).forEach((c) => (col[c.nome] = c));
     for (const [nome, id] of [["nacional", "pill-nacional"], ["municipios", "pill-municipios"], ["secoes", "pill-secoes"]]) {
       const c = col[nome];
@@ -220,12 +240,14 @@
     const r = s.replay_progresso;
     if (r) {
       el.classList.add("replay");
-      el.querySelector(".valor").textContent += ` · replay ${r.hora_virtual} (${r.pct}%${r.concluido ? ", concluído" : ""})`;
+      const fim = r.em_pausa ? `, concluído; recomeça em até ${r.pausa}s` : (r.concluido ? ", concluído" : "");
+      const rod = r.loop ? ` · rodada ${r.rodada}` : "";
+      el.querySelector(".valor").textContent += ` · replay ${r.hora_virtual} (${r.pct}%${fim})${rod}`;
       if (!c.em_andamento) barra.style.width = `${r.pct}%`;
     }
   }
   async function statusLeve() {
-    try { const s = await getJSON("/api/status"); agoraServidor = s.agora; renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
+    try { const s = await getJSON("/api/status"); sincronizar(s); renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
   }
 
   // ------------------------------------------------------------ ciclo
@@ -242,6 +264,7 @@
     proximo = INTERVALO;
   }
   setInterval(() => {
+    renderRelogio();
     proximo -= 1;
     const el = $("pill-tela").querySelector(".valor");
     el.textContent = el.textContent.replace(/ \(próx\. \d+s\)$/, "") + ` (próx. ${Math.max(proximo, 0)}s)`;
