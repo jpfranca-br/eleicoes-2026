@@ -68,6 +68,7 @@ class Replay:
         feito = (self.t_virtual - self.t_ini).total_seconds()
         return {
             "hora_virtual": self.t_virtual.strftime("%H:%M:%S"),
+            "ts_virtual": self._ts_feed(min(self.t_virtual, self.t_fim)),  # mesmo eixo de datas do ts_feed
             "pct": round(min(100.0, max(0.0, feito * 100.0 / total)), 1),
             "velocidade": self.velocidade,
             "concluido": self.t_virtual > self.t_fim,

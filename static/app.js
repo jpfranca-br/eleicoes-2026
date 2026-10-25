@@ -15,14 +15,34 @@
   // Todos os horários vindos do servidor estão em Brasília; "agoraServidor" é a referência de tempo
   // (não o relógio do navegador), para funcionar de qualquer fuso.
   let agoraServidor = null, agoraRecebidoEm = 0;
+  let replay = null; // {tsVirtualMs, velocidade, emPausa, recebidoEm} quando em modo replay
   const paraMs = (ts) => new Date(ts.replace(" ", "T")).getTime();
   // relógio local sincronizado com o servidor: hora do servidor + tempo decorrido desde a última leitura
   function agoraEstimado() { return agoraServidor ? paraMs(agoraServidor) + (Date.now() - agoraRecebidoEm) : Date.now(); }
-  function sincronizar(s) { agoraServidor = s.agora; agoraRecebidoEm = Date.now(); }
+  // no replay, o "agora" é o relógio virtual, avançando na velocidade da simulação entre duas leituras
+  function agoraVirtual() {
+    if (!replay) return null;
+    const decorrido = replay.emPausa ? 0 : (Date.now() - replay.recebidoEm) * replay.velocidade;
+    return replay.tsVirtualMs + decorrido;
+  }
+  function sincronizar(s) {
+    agoraServidor = s.agora; agoraRecebidoEm = Date.now();
+    const r = s.replay_progresso;
+    replay = r && r.ts_virtual ? { tsVirtualMs: paraMs(r.ts_virtual), velocidade: r.velocidade, emPausa: r.em_pausa || r.concluido, recebidoEm: Date.now() } : null;
+  }
+  function hhmmss(ms) {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  }
   function renderRelogio() {
-    const d = new Date(agoraEstimado());
-    const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0"), ss = String(d.getSeconds()).padStart(2, "0");
-    $("pill-relogio").querySelector(".valor").textContent = `${hh}:${mm}:${ss}`;
+    const el = $("pill-relogio");
+    if (replay) {
+      el.querySelector(".rotulo").textContent = `Agora (replay ${replay.velocidade}x)`;
+      el.querySelector(".valor").textContent = hhmmss(agoraVirtual());
+    } else {
+      el.querySelector(".rotulo").textContent = "Agora (Brasília)";
+      el.querySelector(".valor").textContent = hhmmss(agoraEstimado());
+    }
   }
   function horaDe(ts) { // 'YYYY-MM-DD HH:MM:SS' -> 'HH:MM:SS' (com dia se não for o dia do servidor)
     if (!ts) return "—";
@@ -46,10 +66,10 @@
     sincronizar(s);
     if (s.ts_feed_br) {
       // no modo real, dados parados há mais de 10 min com apuração em curso ficam vermelhos
-      const seg = idade(s.ts_feed_br);
+      // no replay a idade do dado é medida contra o relógio virtual
+      const seg = replay ? (agoraVirtual() - paraMs(s.ts_feed_br)) / 1000 : idade(s.ts_feed_br);
       const parado = !s.replay && s.vv > 0 && seg > 600;
-      // no replay a hora do feed é virtual (não comparável com o relógio real)
-      pill("pill-tse", `${horaDe(s.ts_feed_br)} (${s.replay ? "virtual" : haQuanto(seg)})`, parado ? "erro" : "ok");
+      pill("pill-tse", `${horaDe(s.ts_feed_br)} (${haQuanto(Math.max(0, seg))}${s.replay ? ", virtual" : ""})`, parado ? "erro" : "ok");
     } else {
       pill("pill-tse", "sem dados", "");
     }
@@ -247,7 +267,8 @@
     }
   }
   async function statusLeve() {
-    try { const s = await getJSON("/api/status"); sincronizar(s); renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
+    // renderStatus inteiro: no replay o "Dados TSE de" avança rápido e precisa acompanhar o relógio virtual
+    try { const s = await getJSON("/api/status"); renderStatus(s); renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
   }
 
   // ------------------------------------------------------------ ciclo
