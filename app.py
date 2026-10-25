@@ -8,6 +8,8 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -111,6 +113,7 @@ class Calculadora:
 
     def __init__(self) -> None:
         self.payloads: dict[str, Any] = {}
+        self.versoes: dict[str, str] = {}  # impressão digital de cada painel; muda só quando o dado muda
         self.secoes = pd.DataFrame(columns=self.COLS_SECOES)
         self.acc = pd.DataFrame()
         self.ultimo_rowid = 0
@@ -208,12 +211,21 @@ class Calculadora:
                 p["mapa-1-mun"] = analise.mapa_municipios(1, E.mun_1t, mun, E.municipios)
                 p["mapa-1-uf"] = analise.mapa_ufs(1, E.uf_1t, ufs)
                 self._passo(7, "publicando")
+                self.versoes = {k: self._impressao(p[k]) for k in self.PAINEIS}
                 self.payloads = p
                 self.duracao = round(time.time() - t0, 2)
                 self.ultima = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
             finally:
                 self.em_andamento = False
                 self.etapa = ""
+
+    # painéis versionados (br e ultima_varredura ficam de fora: têm horários que mudam sem dado novo)
+    PAINEIS = ("g1", "g2", "quadros", "mapa-1-mun", "mapa-1-uf", "mapa-2-mun", "mapa-2-uf")
+
+    @staticmethod
+    def _impressao(obj: Any) -> str:
+        texto = json.dumps(obj, sort_keys=True, default=str, separators=(",", ":"))
+        return hashlib.md5(texto.encode("utf-8")).hexdigest()[:12]
 
     def payload(self, chave: str) -> Any:
         if not self.payloads:
@@ -285,29 +297,44 @@ def api_status():
     d["agora"] = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
     d["calculo"] = E.calc.progresso()
     d["replay_progresso"] = E.replay_obj.progresso() if E.replay_obj else None
+    d["versoes"] = dict(E.calc.versoes)
     return jsonify(d)
 
 
 @app.route("/api/grafico1")
 def api_grafico1():
-    return jsonify(E.calc.payload("g1"))
+    return _painel("g1")
 
 
 @app.route("/api/grafico2")
 def api_grafico2():
-    return jsonify(E.calc.payload("g2"))
+    return _painel("g2")
 
 
 @app.route("/api/quadros")
 def api_quadros():
-    return jsonify(E.calc.payload("quadros"))
+    return _painel("quadros")
 
 
 @app.route("/api/mapa")
 def api_mapa():
     turno = 1 if request.args.get("turno") == "1" else 2
     nivel = "uf" if request.args.get("nivel") == "uf" else "mun"
-    return jsonify(E.calc.payload(f"mapa-{turno}-{nivel}"))
+    return _painel(f"mapa-{turno}-{nivel}")
+
+
+def _painel(chave: str):
+    """Devolve o painel pronto com ETag = versão; 304 se o navegador já tem essa versão."""
+    dados = E.calc.payload(chave)
+    versao = E.calc.versoes.get(chave)
+    if versao and request.headers.get("If-None-Match", "").strip('W/"') == versao:
+        resp = app.response_class(status=304)
+    else:
+        resp = jsonify(dados)
+    if versao:
+        resp.headers["ETag"] = f'"{versao}"'
+        resp.headers["X-Versao"] = versao
+    return resp
 
 
 # -------------------------------------------------------------------- main

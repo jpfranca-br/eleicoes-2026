@@ -90,7 +90,7 @@ python app.py                        # http://localhost:8000
 python app.py --porta 8080 --host 0.0.0.0
 ```
 
-Abra `http://<ip-do-servidor>:8000/`. A página se atualiza a cada 30 s. A série histórica fica em `data/apuracao.db` (SQLite), então reiniciar o programa não perde o que já foi coletado. Use `--limpar` para zerar.
+Abra `http://<ip-do-servidor>:8000/`. A página se atualiza sozinha quando há dado novo: a cada 3 s ela consulta `/api/status`, que traz uma versão de cada painel, e baixa e redesenha só os painéis que mudaram. Um dado novo do TSE aparece em até ~13 s depois de coletado (10 s de recálculo no servidor + 3 s de consulta). Por segurança, tudo é redesenhado a cada 2 minutos. A série histórica fica em `data/apuracao.db` (SQLite), então reiniciar o programa não perde o que já foi coletado. Use `--limpar` para zerar.
 
 ### 3. Simulação (testar antes das 17h)
 

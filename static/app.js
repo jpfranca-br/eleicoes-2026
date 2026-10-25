@@ -1,14 +1,12 @@
 /* Painel de apuração – frontend. Faz polling nas rotas /api/* a cada 30 s. */
 (function () {
   "use strict";
-  const INTERVALO = 30; // s
   const CORES = { "22": "#1f5fbf", "13": "#d62828", outros: "#f2c230", sem: "#c9c9c9" };
   const NOMES = { "22": "Flavio Bolsonaro", "13": "Lula" };
   const fmtInt = new Intl.NumberFormat("pt-BR");
   const fmtPct = (v) => (v === null || v === undefined ? "—" : v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "%");
   const n = (v) => fmtInt.format(Math.round(v || 0));
   const $ = (id) => document.getElementById(id);
-  let proximo = INTERVALO;
   let mapa = null, camada = null, contorno = null, geoCache = {}, dadosMapa = {};
 
   // ------------------------------------------------------------ util
@@ -302,54 +300,74 @@
     rodadaVista = atual;
     return mudou;
   }
-  async function statusLeve() {
-    // renderStatus inteiro: no replay o "Dados TSE de" avança rápido e precisa acompanhar o relógio virtual
+
+  // ------------------------------------------------------------ atualização por dado novo
+  // O /api/status (a cada 3 s) traz a versão de cada painel; só os painéis cuja versão mudou são baixados e
+  // redesenhados. Cada painel é desenhado em seu próprio try/catch: um erro não impede os demais.
+  const SEGURANCA_S = 120;   // redesenho completo de segurança
+  const STATUS_S = 3;        // consulta leve
+  function tentar(nome, fn) { try { fn(); return null; } catch (e) { console.error(nome, e); return `${nome}: ${e.message}`; } }
+  const chaveMapa = () => `mapa-${$("mapa-turno").value}-${$("mapa-nivel").value}`;
+  const PAINEIS = {
+    g1: { nome: "gráfico 1", url: "/api/grafico1", render: (d) => renderG1(d) },
+    g2: { nome: "gráfico 2", url: "/api/grafico2", render: (d) => renderG2(d) },
+    quadros: { nome: "quadros", url: "/api/quadros", render: (d) => { renderQ1(d.quadro1); renderQ2(d.quadro2); renderQ3(d.quadro3); } },
+  };
+  let versoesVistas = {}, ultimoStatus = null, emAndamento = false;
+
+  async function atualizarPaineis(s, forcar) {
+    if (emAndamento) return;           // o ciclo anterior ainda baixa/desenha; o próximo status tenta de novo
+    const v = s.versoes || {};
+    if (!Object.keys(v).length && !forcar) return; // servidor ainda sem o primeiro cálculo
+    const mudou = (k) => forcar || (v[k] && v[k] !== versoesVistas[k]);
+    const alvos = Object.keys(PAINEIS).filter(mudou);
+    const km = chaveMapa(), mapaMudou = mudou(km);
+    if (!alvos.length && !mapaMudou) return;
+    emAndamento = true;
+    const erros = [], feitos = [];
     try {
-      const s = await getJSON("/api/status");
-      renderStatus(s); renderCalc(s);
-      if (rodadaMudou(s)) { console.info("replay recomeçou: redesenhando tudo"); atualizar(true); }
-    } catch (e) { /* o ciclo principal reporta a falha */ }
+      const respostas = await Promise.all(alvos.map((k) => getJSON(PAINEIS[k].url).then((d) => [k, d], (e) => [k, null, e])));
+      for (const [k, d, e] of respostas) {
+        const err = e ? `${PAINEIS[k].nome}: ${e.message}` : tentar(PAINEIS[k].nome, () => PAINEIS[k].render(d));
+        if (err) erros.push(err); else { versoesVistas[k] = v[k]; feitos.push(PAINEIS[k].nome); }
+      }
+      if (mapaMudou) {
+        try { await renderMapa(); versoesVistas[km] = v[km]; feitos.push("mapa"); }
+        catch (e) { console.error(e); erros.push("mapa: " + e.message); $("mapa-info").textContent = "mapa: " + e.message; }
+      }
+    } finally {
+      emAndamento = false;
+    }
+    const hora = (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)";
+    if (erros.length) pill("pill-tela", `${hora} · erro em ${erros.join("; ")}`, "erro");
+    else if (feitos.length) pill("pill-tela", `${hora} · ${feitos.join(", ")}`, "ok");
   }
 
-  // ------------------------------------------------------------ ciclo
-  // Cada parte é desenhada em seu próprio try/catch: um erro num quadro não impede os demais nem trava o ciclo.
-  function tentar(nome, fn) { try { fn(); return null; } catch (e) { console.error(nome, e); return `${nome}: ${e.message}`; } }
-  let emAndamento = false;
-  async function atualizar(forcar) {
-    if (emAndamento && !forcar) return; // não acumula ciclos se o anterior ainda não terminou
-    emAndamento = true;
-    proximo = INTERVALO;
+  async function statusLeve(forcar) {
     try {
-      const [s, g1, g2, q] = await Promise.all([getJSON("/api/status"), getJSON("/api/grafico1"), getJSON("/api/grafico2"), getJSON("/api/quadros")]);
-      rodadaMudou(s);
-      const erros = [
-        tentar("status", () => { renderStatus(s); renderCalc(s); }),
-        tentar("gráfico 1", () => renderG1(g1)),
-        tentar("gráfico 2", () => renderG2(g2)),
-        tentar("quadro 1", () => renderQ1(q.quadro1)),
-        tentar("quadro 2", () => renderQ2(q.quadro2)),
-        tentar("quadro 3", () => renderQ3(q.quadro3)),
-      ].filter(Boolean);
-      renderMapa().catch((e) => { console.error(e); $("mapa-info").textContent = "mapa: " + e.message; });
-      const hora = (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)";
-      pill("pill-tela", erros.length ? `${hora} · erro em ${erros.join("; ")}` : hora, erros.length ? "erro" : "ok");
+      const s = await getJSON("/api/status");
+      ultimoStatus = s;
+      tentar("status", () => { renderStatus(s); renderCalc(s); });
+      const recomecou = rodadaMudou(s);
+      if (recomecou) console.info("replay recomeçou: redesenhando tudo");
+      await atualizarPaineis(s, forcar || recomecou);
     } catch (e) {
       console.error(e);
       pill("pill-tela", "falha: " + e.message, "erro");
-    } finally {
-      emAndamento = false;
-      proximo = INTERVALO;
     }
   }
-  setInterval(() => {
-    tentar("relógio", renderRelogio);
-    proximo -= 1;
-    const el = $("pill-tela").querySelector(".valor");
-    el.textContent = el.textContent.replace(/ \(próx\. \d+s\)$/, "") + ` (próx. ${Math.max(proximo, 0)}s)`;
-    if (proximo <= 0) atualizar();
-  }, 1000);
-  setInterval(statusLeve, 3000);
-  $("mapa-turno").addEventListener("change", () => renderMapa());
-  $("mapa-nivel").addEventListener("change", () => renderMapa());
-  atualizar();
+
+  setInterval(() => tentar("relógio", renderRelogio), 1000);
+  setInterval(() => statusLeve(false), STATUS_S * 1000);
+  setInterval(() => statusLeve(true), SEGURANCA_S * 1000);
+  const trocarMapa = async () => {
+    try {
+      await renderMapa();
+      const v = ultimoStatus && ultimoStatus.versoes;
+      if (v) versoesVistas[chaveMapa()] = v[chaveMapa()];
+    } catch (e) { console.error(e); $("mapa-info").textContent = "mapa: " + e.message; }
+  };
+  $("mapa-turno").addEventListener("change", trocarMapa);
+  $("mapa-nivel").addEventListener("change", trocarMapa);
+  statusLeve(true);
 })();
