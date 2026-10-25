@@ -12,13 +12,17 @@
   let mapa = null, camada = null, contorno = null, geoCache = {}, dadosMapa = {};
 
   // ------------------------------------------------------------ util
-  function horaDe(ts) { // 'YYYY-MM-DD HH:MM:SS' -> 'HH:MM:SS' (com dia se não for hoje)
+  // Todos os horários vindos do servidor estão em Brasília; "agoraServidor" é a referência de tempo
+  // (não o relógio do navegador), para funcionar de qualquer fuso.
+  let agoraServidor = null;
+  const paraMs = (ts) => new Date(ts.replace(" ", "T")).getTime();
+  function horaDe(ts) { // 'YYYY-MM-DD HH:MM:SS' -> 'HH:MM:SS' (com dia se não for o dia do servidor)
     if (!ts) return "—";
     const [d, h] = ts.split(" ");
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = agoraServidor ? agoraServidor.slice(0, 10) : d;
     return d === hoje ? h : `${d.slice(8, 10)}/${d.slice(5, 7)} ${h}`;
   }
-  function idade(ts) { return ts ? (Date.now() - new Date(ts.replace(" ", "T")).getTime()) / 1000 : Infinity; }
+  function idade(ts) { return ts && agoraServidor ? (paraMs(agoraServidor) - paraMs(ts)) / 1000 : Infinity; }
   function pill(id, valor, estado) {
     const el = $(id); el.querySelector(".valor").textContent = valor;
     el.classList.remove("erro", "ok"); if (estado) el.classList.add(estado);
@@ -27,6 +31,7 @@
 
   // ------------------------------------------------------------ status
   function renderStatus(s) {
+    agoraServidor = s.agora;
     pill("pill-tse", s.ts_feed_br ? horaDe(s.ts_feed_br) : "sem dados", s.ts_feed_br ? "ok" : "");
     const col = {}; (s.coletas || []).forEach((c) => (col[c.nome] = c));
     for (const [nome, id] of [["nacional", "pill-nacional"], ["municipios", "pill-municipios"], ["secoes", "pill-secoes"]]) {
@@ -201,7 +206,7 @@
       const [s, g1, g2, q] = await Promise.all([getJSON("/api/status"), getJSON("/api/grafico1"), getJSON("/api/grafico2"), getJSON("/api/quadros")]);
       renderStatus(s); renderG1(g1); renderG2(g2); renderQ1(q.quadro1); renderQ2(q.quadro2); renderQ3(q.quadro3);
       renderMapa().catch((e) => { console.error(e); $("mapa-info").textContent = "mapa: " + e.message; });
-      pill("pill-tela", new Date().toLocaleTimeString("pt-BR"), "ok");
+      pill("pill-tela", (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)", "ok");
     } catch (e) {
       console.error(e);
       pill("pill-tela", "falha: " + e.message, "erro");

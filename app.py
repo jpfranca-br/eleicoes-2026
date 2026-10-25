@@ -45,7 +45,7 @@ class Estado:
         self.ufs_limite: list[str] | None = None
         self._lock = threading.Lock()
         self._cache: dict[str, tuple[float, Any]] = {}
-        self.inicio = datetime.now()
+        self.inicio = config.agora_brasilia()
 
     # ---------------------------------------------------------------- 1º turno
     def carregar_1t(self) -> None:
@@ -129,7 +129,8 @@ def api_status():
         varr = E.storage.varreduras()
         ultima = varr.iloc[-1].to_dict() if not varr.empty else None
         return {
-            "agora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "agora": config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S"),
+            "fuso": config.FUSO_HORARIO,
             "replay": E.replay,
             "ts_feed_br": br.get("ts_feed"),
             "coletado_em_br": br.get("coletado_em"),

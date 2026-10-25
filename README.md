@@ -151,7 +151,7 @@ O servidor embutido do Flask é suficiente para poucos usuários simultâneos. P
 
 ## O que a interface mostra
 
-Cabeçalho: hora dos dados do TSE, hora da última coleta de cada rotina (nacional/UF, municípios, lista de seções), hora da última atualização da tela, seções apuradas e situação do 1º turno. Uma rotina fica vermelha se falhou ou se está há mais de 3 minutos sem sucesso.
+Cabeçalho: hora dos dados do TSE, hora da última coleta de cada rotina (nacional/UF, municípios, lista de seções), hora da última atualização da tela, seções apuradas e situação do 1º turno. **Todos os horários são de Brasília**, o mesmo fuso dos dados do TSE, mesmo que o servidor esteja em UTC (padrão de muitas máquinas Linux) ou o navegador em outro fuso. O fuso fica em `config.FUSO_HORARIO`. Uma rotina fica vermelha se falhou ou se está há mais de 3 minutos sem sucesso.
 
 - **Gráfico 1** – % de votos válidos × horário em que as urnas entraram na totalização. 1º turno (tracejado, por seção, 04/10) e 2º turno (sólido, feed do TSE, 25/10) sobrepostos no mesmo eixo de horas. Hover: %, votos, seções e horário.
 - **Gráfico 2** – 2º turno × 1º turno **nas mesmas seções** apuradas. Dois modos, escolhidos automaticamente:

@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS varreduras (
 
 
 def agora() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Horário de Brasília (fuso dos dados do TSE), não o da máquina."""
+    return config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class Storage:

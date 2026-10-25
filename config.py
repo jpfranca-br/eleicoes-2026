@@ -108,6 +108,30 @@ CACHE_API_SEGUNDOS = 10      # cache das respostas /api/*
 LIMIAR_LOTE = 0.80           # fração de seções de uma UF surgindo numa única coleta => "lote"
 
 
+# ---------------------------------------------------------------- Fuso horário
+# Todos os horários gravados/exibidos pelo painel ficam em Brasília (o mesmo fuso dos dados do TSE),
+# independentemente do fuso da máquina onde o app roda (servidores Linux costumam estar em UTC).
+FUSO_HORARIO = "America/Sao_Paulo"
+
+
+def _fuso():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(FUSO_HORARIO)
+    except Exception:  # noqa: BLE001  (sem base tzdata: cai para UTC-3 fixo)
+        from datetime import timedelta, timezone
+        return timezone(timedelta(hours=-3), "BRT")
+
+
+FUSO = _fuso()
+
+
+def agora_brasilia():
+    """datetime 'naive' no horário de Brasília."""
+    from datetime import datetime
+    return datetime.now(FUSO).replace(tzinfo=None)
+
+
 def garantir_pastas() -> None:
     for p in (DATA_DIR, RAW_DIR, DIR_1T, GEO_DIR):
         p.mkdir(parents=True, exist_ok=True)
