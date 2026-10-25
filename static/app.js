@@ -338,9 +338,10 @@
     } finally {
       emAndamento = false;
     }
-    const hora = (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)";
-    if (erros.length) pill("pill-tela", `${hora} · erro em ${erros.join("; ")}`, "erro");
-    else if (feitos.length) pill("pill-tela", `${hora} · ${feitos.join(", ")}`, "ok");
+    // só o horário; detalhes (painéis atualizados ou erros) ficam na dica ao passar o mouse
+    const hora = agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR");
+    if (erros.length) { pill("pill-tela", hora, "erro"); $("pill-tela").title = "erro em " + erros.join("; "); }
+    else if (feitos.length) { pill("pill-tela", hora, "ok"); $("pill-tela").title = "atualizado: " + feitos.join(", "); }
   }
 
   async function statusLeve(forcar) {
@@ -353,7 +354,8 @@
       await atualizarPaineis(s, forcar || recomecou);
     } catch (e) {
       console.error(e);
-      pill("pill-tela", "falha: " + e.message, "erro");
+      pill("pill-tela", agoraServidor ? agoraServidor.slice(11) : "—", "erro");
+      $("pill-tela").title = "falha: " + e.message;
     }
   }
 
