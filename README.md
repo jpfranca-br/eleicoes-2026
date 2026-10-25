@@ -181,6 +181,7 @@ Carga na rede em modo real: 29 requisições a cada 30 s (nacional/UFs), ~5.760 
 - O TSE não publica votos **por seção** do 2º turno em tempo real de forma agregada; o menor nível em tempo real é o **município**. A camada por seção serve para identificar *quais* seções já foram apuradas (lado do 1º turno da comparação).
 - Os válidos do 1º turno somados dos boletins (119.306.034) diferem em 5.246 votos dos válidos do TSE (119.300.788): são votos anulados sub judice que o boletim registra como nominais. Os totais de Flavio e Lula batem exatamente.
 - Projeções e “matematicamente eleito” são cálculos deste painel, não do TSE.
+- **Nada aparece antes das 17h de Brasília, nem o Exterior.** As seções no exterior (Japão, Austrália etc.) encerram e são apuradas horas antes por causa do fuso, mas o TSE só começa a divulgar qualquer resultado do 2º turno, inclusive o do exterior, depois que as últimas seções do Brasil fecham, às 17h de Brasília. Até lá os arquivos de divulgação ficam congelados com zeros, e é isso que o painel mostra. Conferido em 25/10/2026 às 11h: Exterior 0 de 1.351 seções, Tóquio 0 de 43, nenhum boletim do exterior publicado. Quando a divulgação começar, o Exterior entra nos Gráficos 1 e 2 (dentro do total nacional), na linha “Exterior” do Quadro 1 e na extrapolação do Quadro 2. No mapa não há exterior, porque a malha do IBGE só cobre o Brasil.
 
 ## Estrutura
 
