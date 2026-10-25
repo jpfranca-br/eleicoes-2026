@@ -153,6 +153,10 @@ class Storage:
     def secoes_2t(self) -> pd.DataFrame:
         return self._df("SELECT * FROM secoes_2t")
 
+    def secoes_2t_desde(self, rowid: int) -> pd.DataFrame:
+        """Seções inseridas depois de `rowid` (leitura incremental; rowid só cresce)."""
+        return self._df("SELECT rowid AS rowid, * FROM secoes_2t WHERE rowid > ? ORDER BY rowid", (int(rowid),))
+
     def secoes_2t_chaves(self) -> set[tuple[str, str, str, str]]:
         with self._lock:
             cur = self._con.execute("SELECT uf, cd_mun, zona, secao FROM secoes_2t")

@@ -124,8 +124,10 @@ def mesmas_secoes_acumulado(secoes_2t: pd.DataFrame, df1t: pd.DataFrame) -> pd.D
 
 
 def grafico2(df1t: pd.DataFrame, snaps_br: pd.DataFrame, mesmas_mun_br: pd.DataFrame,
-             secoes_2t: pd.DataFrame) -> dict[str, Any]:
-    modo, motivo = detectar_modo(secoes_2t, df1t)
+             secoes_2t: pd.DataFrame, acc: pd.DataFrame | None = None,
+             modo_motivo: tuple[str, str] | None = None) -> dict[str, Any]:
+    """acc: resultado de mesmas_secoes_acumulado já pronto (evita refazer o cruzamento a cada chamada)."""
+    modo, motivo = modo_motivo or detectar_modo(secoes_2t, df1t)
     vazio = {"modo": modo, "motivo": motivo, "x": [], "hora": [], "turno2": {}, "turno1": {}}
     if snaps_br.empty:
         return vazio
@@ -142,12 +144,12 @@ def grafico2(df1t: pd.DataFrame, snaps_br: pd.DataFrame, mesmas_mun_br: pd.DataF
         return {c: np.where(ok, cum[c].values[np.clip(idx, 0, None)], 0) for c in cols}
 
     if modo == "secao":
-        acc = mesmas_secoes_acumulado(secoes_2t, df1t)
+        if acc is None:
+            acc = mesmas_secoes_acumulado(secoes_2t, df1t)
         if acc.empty:
             modo, motivo = "municipio", "seções vistas não encontradas no 1º turno"
     if modo == "secao":
-        acc["visto_em"] = pd.to_datetime(acc["visto_em"])
-        t1 = asof(acc["visto_em"].values, acc[[*VOTOS, "n"]].cumsum(), [*VOTOS, "n"])
+        t1 = asof(pd.to_datetime(acc["visto_em"]).values, acc[[*VOTOS, "n"]].cumsum(), [*VOTOS, "n"])
     else:
         if mesmas_mun_br is None or mesmas_mun_br.empty:
             return {**vazio, "modo": modo, "motivo": motivo}

@@ -84,10 +84,10 @@ class Estado:
         self.carregar_1t()
         threading.Thread(target=loop, name="monitor-1t", daemon=True).start()
 
-    def cache(self, chave: str, fn: Callable[[], Any]) -> Any:
+    def cache(self, chave: str, fn: Callable[[], Any], segundos: float | None = None) -> Any:
         now = time.time()
         hit = self._cache.get(chave)
-        if hit and now - hit[0] < config.CACHE_API_SEGUNDOS:
+        if hit and now - hit[0] < (segundos or config.CACHE_API_SEGUNDOS):
             return hit[1]
         val = fn()
         self._cache[chave] = (now, val)
@@ -97,16 +97,95 @@ class Estado:
 E = Estado()
 
 
-# -------------------------------------------------------------------- helpers
-def _br_atual() -> dict | None:
-    return E.storage.ultimo_snapshot("br", "br")
+# -------------------------------------------------------------------- cálculo em segundo plano
+class Calculadora:
+    """Recalcula todas as respostas da API a cada CACHE_API_SEGUNDOS numa thread própria.
+
+    As rotas só devolvem o último resultado pronto, então nunca bloqueiam (o cruzamento das seções
+    com o 1º turno é pesado e, feito dentro da requisição, derrubava o proxy com 502).
+    O cruzamento é incremental: só as seções novas desde a última rodada são processadas.
+    """
+
+    COLS_SECOES = ["rowid", "uf", "cd_mun", "zona", "secao", "visto_em", "da", "ha"]
+
+    def __init__(self) -> None:
+        self.payloads: dict[str, Any] = {}
+        self.secoes = pd.DataFrame(columns=self.COLS_SECOES)
+        self.acc = pd.DataFrame()
+        self.ultimo_rowid = 0
+        self.modo, self.motivo = "municipio", "aguardando primeiro cálculo"
+        self.ultima: str | None = None
+        self.duracao = 0.0
+        self._df1t_id: int | None = None
+        self._lock = threading.Lock()
+
+    def iniciar(self) -> None:
+        def loop():
+            while True:
+                try:
+                    self.calcular()
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("calculadora: %s", exc)
+                time.sleep(config.CACHE_API_SEGUNDOS)
+        threading.Thread(target=loop, name="calculadora", daemon=True).start()
+
+    def _atualizar_secoes(self) -> None:
+        novas = E.storage.secoes_2t_desde(self.ultimo_rowid)
+        if not novas.empty:
+            self.ultimo_rowid = int(novas["rowid"].max())
+            self.secoes = novas if self.secoes.empty else pd.concat([self.secoes, novas], ignore_index=True)
+        df1t_mudou = id(E.df1t) != self._df1t_id
+        if df1t_mudou:  # 1º turno (re)carregado: refaz o cruzamento inteiro
+            self._df1t_id = id(E.df1t)
+            self.acc = analise.mesmas_secoes_acumulado(self.secoes, E.df1t) if not E.df1t.empty else pd.DataFrame()
+        elif not novas.empty and not E.df1t.empty:
+            acc_novo = analise.mesmas_secoes_acumulado(novas, E.df1t)
+            if not acc_novo.empty:
+                self.acc = acc_novo if self.acc.empty else pd.concat([self.acc, acc_novo], ignore_index=True)
+                if not self.acc["visto_em"].is_monotonic_increasing:
+                    self.acc = self.acc.sort_values("visto_em", kind="stable").reset_index(drop=True)
+
+    def calcular(self) -> None:
+        with self._lock:
+            t0 = time.time()
+            self._atualizar_secoes()
+            self.modo, self.motivo = analise.detectar_modo(self.secoes, E.df1t)
+            br = E.storage.ultimo_snapshot("br", "br")
+            snaps_br = E.storage.snapshots("br", "br")
+            mesmas_mun_br = E.storage.snapshots("mesmas_mun", "br")
+            ufs = E.storage.ultimos_por_codigo("uf")
+            mun = E.storage.mun_atual()
+            mesmas_mun_ufs = E.storage.ultimos_por_codigo("mesmas_mun")
+            mesmas_sec = self.acc if self.modo == "secao" else pd.DataFrame()
+            varr = E.storage.varreduras()
+            p: dict[str, Any] = {
+                "g1": analise.grafico1(E.s1t, snaps_br),
+                "g2": analise.grafico2(E.df1t, snaps_br, mesmas_mun_br, self.secoes, acc=self.acc,
+                                       modo_motivo=(self.modo, self.motivo)),
+                "quadros": {
+                    "quadro1": analise.quadro1(E.uf_1t, ufs, br, self.modo, mesmas_sec, mesmas_mun_ufs),
+                    "quadro2": analise.quadro2(br, ufs, mun),
+                    "quadro3": analise.quadro3(br),
+                    "modo": self.modo, "motivo": self.motivo,
+                },
+                "mapa-2-mun": analise.mapa_municipios(2, E.mun_1t, mun, E.municipios),
+                "mapa-2-uf": analise.mapa_ufs(2, E.uf_1t, ufs),
+                "mapa-1-mun": analise.mapa_municipios(1, E.mun_1t, mun, E.municipios),
+                "mapa-1-uf": analise.mapa_ufs(1, E.uf_1t, ufs),
+                "br": br or {},
+                "ultima_varredura": varr.iloc[-1].to_dict() if not varr.empty else None,
+            }
+            self.payloads = p
+            self.duracao = round(time.time() - t0, 2)
+            self.ultima = config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+
+    def payload(self, chave: str) -> Any:
+        if not self.payloads:
+            self.calcular()
+        return self.payloads.get(chave)
 
 
-def _modo_e_mesmas() -> tuple[str, str, pd.DataFrame]:
-    secoes = E.storage.secoes_2t()
-    modo, motivo = analise.detectar_modo(secoes, E.df1t)
-    mesmas_sec = analise.mesmas_secoes_acumulado(secoes, E.df1t) if modo == "secao" else pd.DataFrame()
-    return modo, motivo, mesmas_sec
+E.calc = Calculadora()
 
 
 # -------------------------------------------------------------------- rotas
@@ -123,13 +202,13 @@ def geo(nome: str):
 @app.route("/api/status")
 def api_status():
     def calc():
-        br = _br_atual() or {}
+        br = E.calc.payload("br") or {}
         coletas = E.storage.coletas()
-        modo, motivo, _ = _modo_e_mesmas()
-        varr = E.storage.varreduras()
-        ultima = varr.iloc[-1].to_dict() if not varr.empty else None
+        modo, motivo = E.calc.modo, E.calc.motivo
+        ultima = E.calc.payload("ultima_varredura")
         return {
             "agora": config.agora_brasilia().strftime("%Y-%m-%d %H:%M:%S"),
+            "calculo": {"ultima": E.calc.ultima, "duracao": E.calc.duracao},
             "fuso": config.FUSO_HORARIO,
             "replay": E.replay,
             "ts_feed_br": br.get("ts_feed"),
@@ -145,53 +224,33 @@ def api_status():
             "ultima_varredura": ultima,
             "respostas_429": tse_client.limitador.total_429,
             "modo_grafico2": modo, "motivo_grafico2": motivo,
-            "secoes_2t_vistas": int(len(E.storage.secoes_2t_chaves())),
+            "secoes_2t_vistas": int(len(E.calc.secoes)),
             "candidatos": config.CANDIDATOS, "cores": config.CORES,
             "total_eleitores": analise.total_eleitores(br)[0], "origem_total": analise.total_eleitores(br)[1],
         }
-    return jsonify(E.cache("status", calc))
+    return jsonify(E.cache("status", calc, segundos=5))
 
 
 @app.route("/api/grafico1")
 def api_grafico1():
-    return jsonify(E.cache("g1", lambda: analise.grafico1(E.s1t, E.storage.snapshots("br", "br"))))
+    return jsonify(E.calc.payload("g1"))
 
 
 @app.route("/api/grafico2")
 def api_grafico2():
-    def calc():
-        return analise.grafico2(E.df1t, E.storage.snapshots("br", "br"),
-                                E.storage.snapshots("mesmas_mun", "br"), E.storage.secoes_2t())
-    return jsonify(E.cache("g2", calc))
+    return jsonify(E.calc.payload("g2"))
 
 
 @app.route("/api/quadros")
 def api_quadros():
-    def calc():
-        br = _br_atual()
-        ufs = E.storage.ultimos_por_codigo("uf")
-        mun = E.storage.mun_atual()
-        modo, motivo, mesmas_sec = _modo_e_mesmas()
-        mesmas_mun_ufs = E.storage.ultimos_por_codigo("mesmas_mun")
-        return {
-            "quadro1": analise.quadro1(E.uf_1t, ufs, br, modo, mesmas_sec, mesmas_mun_ufs),
-            "quadro2": analise.quadro2(br, ufs, mun),
-            "quadro3": analise.quadro3(br),
-            "modo": modo, "motivo": motivo,
-        }
-    return jsonify(E.cache("quadros", calc))
+    return jsonify(E.calc.payload("quadros"))
 
 
 @app.route("/api/mapa")
 def api_mapa():
     turno = 1 if request.args.get("turno") == "1" else 2
     nivel = "uf" if request.args.get("nivel") == "uf" else "mun"
-
-    def calc():
-        if nivel == "uf":
-            return analise.mapa_ufs(turno, E.uf_1t, E.storage.ultimos_por_codigo("uf"))
-        return analise.mapa_municipios(turno, E.mun_1t, E.storage.mun_atual(), E.municipios)
-    return jsonify(E.cache(f"mapa-{turno}-{nivel}", calc))
+    return jsonify(E.calc.payload(f"mapa-{turno}-{nivel}"))
 
 
 # -------------------------------------------------------------------- main
@@ -257,6 +316,7 @@ def main() -> None:
                     time.sleep(15)
         threading.Thread(target=iniciar_coletor, name="iniciar-coletor", daemon=True).start()
 
+    E.calc.iniciar()
     log.info("painel em http://%s:%d/", "localhost" if args.host == "0.0.0.0" else args.host, args.porta)
     app.run(host=args.host, port=args.porta, debug=False, threaded=True, use_reloader=False)
 
