@@ -68,7 +68,18 @@
     const el = $(id); el.querySelector(".valor").textContent = valor;
     el.classList.remove("erro", "ok"); if (estado) el.classList.add(estado);
   }
-  async function getJSON(url) { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error(url + " " + r.status); return r.json(); }
+  async function getJSON(url, timeoutMs = 20000) {
+    // timeout explícito: uma requisição pendurada (proxy/túnel) não pode travar o ciclo de atualização
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { cache: "no-store", signal: ctl.signal });
+      if (!r.ok) throw new Error(url + " " + r.status);
+      return await r.json();
+    } catch (e) {
+      throw e.name === "AbortError" ? new Error(url + " sem resposta em " + timeoutMs / 1000 + "s") : e;
+    } finally { clearTimeout(timer); }
+  }
 
   // ------------------------------------------------------------ status
   function renderStatus(s) {
@@ -275,26 +286,55 @@
       if (!c.em_andamento) barra.style.width = `${r.pct}%`;
     }
   }
+  let rodadaVista = null; // nº da rodada do replay --loop vista pela última vez
+  function rodadaMudou(s) {
+    const r = s.replay_progresso;
+    const atual = r ? `${r.rodada}` : "real";
+    const mudou = rodadaVista !== null && atual !== rodadaVista;
+    rodadaVista = atual;
+    return mudou;
+  }
   async function statusLeve() {
     // renderStatus inteiro: no replay o "Dados TSE de" avança rápido e precisa acompanhar o relógio virtual
-    try { const s = await getJSON("/api/status"); renderStatus(s); renderCalc(s); } catch (e) { /* o ciclo principal reporta a falha */ }
+    try {
+      const s = await getJSON("/api/status");
+      renderStatus(s); renderCalc(s);
+      if (rodadaMudou(s)) { console.info("replay recomeçou: redesenhando tudo"); atualizar(true); }
+    } catch (e) { /* o ciclo principal reporta a falha */ }
   }
 
   // ------------------------------------------------------------ ciclo
-  async function atualizar() {
+  // Cada parte é desenhada em seu próprio try/catch: um erro num quadro não impede os demais nem trava o ciclo.
+  function tentar(nome, fn) { try { fn(); return null; } catch (e) { console.error(nome, e); return `${nome}: ${e.message}`; } }
+  let emAndamento = false;
+  async function atualizar(forcar) {
+    if (emAndamento && !forcar) return; // não acumula ciclos se o anterior ainda não terminou
+    emAndamento = true;
+    proximo = INTERVALO;
     try {
       const [s, g1, g2, q] = await Promise.all([getJSON("/api/status"), getJSON("/api/grafico1"), getJSON("/api/grafico2"), getJSON("/api/quadros")]);
-      renderStatus(s); renderCalc(s); renderG1(g1); renderG2(g2); renderQ1(q.quadro1); renderQ2(q.quadro2); renderQ3(q.quadro3);
+      rodadaMudou(s);
+      const erros = [
+        tentar("status", () => { renderStatus(s); renderCalc(s); }),
+        tentar("gráfico 1", () => renderG1(g1)),
+        tentar("gráfico 2", () => renderG2(g2)),
+        tentar("quadro 1", () => renderQ1(q.quadro1)),
+        tentar("quadro 2", () => renderQ2(q.quadro2)),
+        tentar("quadro 3", () => renderQ3(q.quadro3)),
+      ].filter(Boolean);
       renderMapa().catch((e) => { console.error(e); $("mapa-info").textContent = "mapa: " + e.message; });
-      pill("pill-tela", (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)", "ok");
+      const hora = (agoraServidor ? agoraServidor.slice(11) : new Date().toLocaleTimeString("pt-BR")) + " (Brasília)";
+      pill("pill-tela", erros.length ? `${hora} · erro em ${erros.join("; ")}` : hora, erros.length ? "erro" : "ok");
     } catch (e) {
       console.error(e);
       pill("pill-tela", "falha: " + e.message, "erro");
+    } finally {
+      emAndamento = false;
+      proximo = INTERVALO;
     }
-    proximo = INTERVALO;
   }
   setInterval(() => {
-    renderRelogio();
+    tentar("relógio", renderRelogio);
     proximo -= 1;
     const el = $("pill-tela").querySelector(".valor");
     el.textContent = el.textContent.replace(/ \(próx\. \d+s\)$/, "") + ` (próx. ${Math.max(proximo, 0)}s)`;
