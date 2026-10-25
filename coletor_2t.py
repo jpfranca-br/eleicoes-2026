@@ -22,6 +22,15 @@ from storage import Storage, agora
 log = logging.getLogger(__name__)
 
 
+def _milhar(n: int) -> str:
+    return f"{n:,}".replace(",", ".")
+
+
+def _progresso(feitos: int, total: int, erros: int) -> str:
+    texto = f"{_milhar(feitos)}/{_milhar(total)} nesta volta"
+    return texto + (f", {erros} erro(s)" if erros else "")
+
+
 class Coletor:
     def __init__(self, storage: Storage, mun_1t_getter: Callable[[], pd.DataFrame]):
         self.storage = storage
@@ -84,7 +93,8 @@ class Coletor:
             t0 = time.time()
             try:
                 n_ok, n_err = self.varrer_municipios()
-                self.storage.registrar_coleta("municipios", True, f"{n_ok} ok, {n_err} erro(s)", time.time() - t0)
+                msg = f"volta completa: {_milhar(n_ok)} ok, {n_err} erro(s)" if n_ok or n_err else "todos os municípios 100% apurados"
+                self.storage.registrar_coleta("municipios", True, msg, time.time() - t0)
             except Exception as exc:  # noqa: BLE001
                 log.warning("municipios: %s", exc)
                 self.storage.registrar_coleta("municipios", False, str(exc)[:200])
@@ -118,6 +128,8 @@ class Coletor:
             self._parar.wait(60)
             return 0, 0
         log.info("varredura municipal: %d pendente(s), %d concluído(s)", len(pendentes), len(concluidos))
+        total = len(pendentes)
+        t0 = time.time()
         with ThreadPoolExecutor(max_workers=config.THREADS_MUNICIPIOS) as ex:
             for d in ex.map(buscar, pendentes):
                 if self._parar.is_set():
@@ -128,6 +140,10 @@ class Coletor:
                     resultados.append(d)
                     if len(resultados) % 500 == 0:  # grava parcial para o mapa ir aparecendo
                         self.storage.gravar_mun_atual(resultados[-500:])
+                feitos = len(resultados) + erros
+                if feitos % 500 == 0 and feitos < total:
+                    # progresso parcial: mantém o "último sucesso" recente durante voltas longas (16-25 min)
+                    self.storage.registrar_coleta("municipios", True, _progresso(feitos, total, erros), time.time() - t0)
         if resultados:
             self.storage.gravar_mun_atual(resultados)
             self.storage.gravar_snapshots("mun", [(d["codigo"], d) for d in resultados])
