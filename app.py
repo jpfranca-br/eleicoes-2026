@@ -266,7 +266,7 @@ def api_status():
             "ts_feed_br": br.get("ts_feed"),
             "coletado_em_br": br.get("coletado_em"),
             "st": int(br.get("st", 0)), "ts": int(br.get("ts", 0)), "pst": analise.pct(br.get("st", 0), br.get("ts", 0)),
-            "vv": int(br.get("vv", 0)),
+            "vv": int(br.get("vv", 0)), "tv": int(br.get("tv", 0)),
             "turno1": {
                 "ufs_prontas": len(E.ufs_1t_carregadas), "ufs_total": len(E.ufs_limite or config.UFS),
                 "secoes": int(len(E.df1t)), "carregando": E.carregando_1t, "erro": E.erro_1t,

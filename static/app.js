@@ -101,6 +101,7 @@
       pill(id, horaDe(c.ultimo_ok) + (c.msg ? " · " + c.msg : ""), atrasada ? "erro" : "ok");
     }
     pill("pill-apurado", `${n(s.st)} / ${n(s.ts)} (${fmtPct(s.pst)})`, s.st > 0 ? "ok" : "");
+    pill("pill-votos", s.tv > 0 ? `${n(s.tv)} · válidos ${n(s.vv)}` : "—", s.tv > 0 ? "ok" : "");
     const t1 = s.turno1 || {};
     const txt1 = t1.ufs_prontas === t1.ufs_total ? `${t1.ufs_total} UFs · ${n(t1.secoes)} seções` : `${t1.ufs_prontas}/${t1.ufs_total} UFs${t1.carregando ? " (baixando…)" : ""}`;
     pill("pill-1t", txt1, t1.ufs_prontas === t1.ufs_total ? "ok" : (t1.erro ? "erro" : ""));
@@ -265,6 +266,11 @@
   // ------------------------------------------------------------ progresso do cálculo (leve, a cada 3 s)
   function renderCalc(s) {
     const c = s.calculo || {}, el = $("pill-calc");
+    if (!el) { // pill removido da interface: o progresso do replay vai para a linha de avisos
+      const r = s.replay_progresso;
+      if (r) $("aviso").textContent += ` Replay: ${r.hora_virtual} (${r.pct}%${r.em_pausa ? ", recomeça em instantes" : ""})${r.loop ? ` · rodada ${r.rodada}` : ""}.`;
+      return;
+    }
     el.classList.remove("calc", "ok", "erro", "replay");
     const barra = el.querySelector(".barra i");
     if (c.em_andamento) {
