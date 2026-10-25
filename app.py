@@ -225,9 +225,27 @@ E.calc = Calculadora()
 
 
 # -------------------------------------------------------------------- rotas
+def _versao_estaticos() -> str:
+    """Muda sempre que app.js/style.css mudam: a URL ganha ?v=... e nenhum cache (navegador/Cloudflare) segura versão velha."""
+    return str(int(max((config.STATIC_DIR / n).stat().st_mtime for n in ("app.js", "style.css", "index.html"))))
+
+
 @app.route("/")
 def index():
-    return send_from_directory(str(config.STATIC_DIR), "index.html")
+    html = (config.STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__VERSAO__", _versao_estaticos())
+    resp = app.response_class(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
+@app.after_request
+def _sem_cache(resp):
+    # /api e a página nunca devem ser cacheados por proxies (Cloudflare etc.); estáticos versionados podem
+    if request.path.startswith("/api/") or request.path == "/":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    elif request.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
 
 
 @app.route("/geo/<nome>")

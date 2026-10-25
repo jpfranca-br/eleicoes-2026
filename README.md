@@ -162,6 +162,7 @@ Problemas comuns:
 - `fatal: detected dubious ownership in repository` no `git pull`: a pasta pertence a outro usuário (clone feito com `sudo`). Corrija com `sudo chown -R $USER:$USER /opt/eleicoes`.
 - Serviço em `activating (auto-restart)` com `status=1/FAILURE`: quase sempre o `User=` do serviço não é o dono da pasta. Veja o erro com `sudo journalctl -u eleicoes -n 30 --no-pager`.
 - Horários do cabeçalho 3 h à frente: versão antiga do código. Faça `git pull` e reinicie; o painel usa sempre o horário de Brasília, mesmo com o servidor em UTC.
+- Depois de um `git pull`, a tela não mostra uma novidade (ex.: um pill vazio): cache do navegador ou do Cloudflare com o `app.js` antigo. Ctrl+F5 resolve. Desde o commit de versionamento, a página referencia `app.js?v=<data do arquivo>` e as rotas `/api/*` saem com `Cache-Control: no-store`, então isso não deve mais acontecer.
 - `502` intermitente atrás de proxy ou Cloudflare Tunnel: versão antiga calculava o Gráfico 2 dentro da requisição e podia levar 5 s. Desde o commit `calculadora`, todas as respostas são recalculadas numa thread a cada 10 s (`CACHE_API_SEGUNDOS`) e as rotas devolvem o resultado pronto em milissegundos. O campo `calculo` de `/api/status` mostra a hora e a duração do último cálculo.
 
 O servidor embutido do Flask é suficiente para poucos usuários simultâneos. Para expor na internet, coloque um nginx na frente (proxy para `127.0.0.1:8000`).
