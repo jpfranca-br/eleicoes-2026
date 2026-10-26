@@ -116,6 +116,27 @@ O replay usa um banco separado (`data/replay.db`) e sempre começa do zero. A p�
 | `--replay`, `--velocidade`, `--inicio HH:MM`, `--forcar-2-candidatos`, `--lote`, `--loop` | simulação |
 | `--debug` | log detalhado |
 
+## Análise depois da apuração: seções e votos por janela de tempo
+
+`analisar_fechamento.py` lê a base gravada durante a noite e mostra quantas seções e votos entraram na totalização em cada janela (padrão 10 min):
+
+```bash
+python analisar_fechamento.py                       # 2º turno, a partir de data/apuracao.db
+python analisar_fechamento.py --turno 1             # 1º turno, a partir de data/1t (horário real por seção)
+python analisar_fechamento.py --intervalo 5 --detalhe   # janelas de 5 min; acrescenta válidos, Flavio e Lula
+python analisar_fechamento.py --csv fechamento.csv  # grava também em CSV
+python analisar_fechamento.py --db /caminho/apuracao.db
+```
+
+Saída (exemplo):
+
+```
+17:00:00 até 17:09:59 -     1 075 seções -       280 731 votos
+17:10:00 até 17:19:59 -     4 599 seções -     1 087 208 votos
+```
+
+No 2º turno a fonte é o snapshot nacional do TSE gravado a cada 30 s (`st` = seções totalizadas, `tv` = votos, acumulados); cada janela é a diferença entre o último snapshot antes dela e o último dentro dela. Por isso a resolução real é de 30 s e o horário é o do feed do TSE (hora de Brasília). No 1º turno a fonte é o boletim de urna de cada seção (`DT_BU_RECEBIDO`), com precisão de segundos. "Votos" = comparecimento (inclui brancos e nulos).
+
 ## Linux: firewall e serviço
 
 ```bash
