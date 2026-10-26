@@ -182,6 +182,7 @@ def baixar_secao(chave: tuple[str, str, str, str], pleito: str, eleicao: int, de
     nome_bu = next((a["nm"] for a in h.get("arq") or [] if a.get("tp") == "bu"), None)
     if not nome_bu:
         raise ValueError("aux.json sem arquivo bu")
+    tse_client.limitador.esperar()  # o bu.dat também conta no limite (2 requisições por seção)
     r = tse_client.session().get(f"{base}/{h['hash']}/{nome_bu}", timeout=config.HTTP_TIMEOUT)
     if r.status_code == 429:
         tse_client.limitador.registrar_429()
@@ -198,22 +199,76 @@ def baixar_secao(chave: tuple[str, str, str, str], pleito: str, eleicao: int, de
     return linha
 
 
+class Adaptador:
+    """Controle adaptativo da taxa (AIMD): corta pela metade ao ver 429, sobe 25 % a cada SOBE_APOS_S s sem 429,
+    até o teto. Assim --taxa 300 significa "até 300": o script acha o limite real do TSE sem ficar bloqueado."""
+
+    SOBE_APOS_S = 60       # s seguidos sem 429 para subir
+    FATOR_SOBE = 1.25
+    FATOR_CORTE = 0.5
+    TAXA_MIN = 5.0
+    INICIO_MAX = 50.0      # começa no máximo em 50 req/s mesmo que o teto seja maior
+
+    def __init__(self, teto: float, limitador=None):
+        self.teto = float(teto)
+        self.limitador = limitador or tse_client.limitador
+        self.taxa = min(self.teto, self.INICIO_MAX)
+        self._aplicar()
+        self._ultimo_429 = self.limitador.total_429
+        self._estavel_desde = time.monotonic()
+        self._ultimo_corte = 0.0
+        self.cortes = 0
+
+    def _aplicar(self) -> None:
+        self.limitador.taxa = self.taxa
+        self.limitador.capacidade = max(1.0, self.taxa)
+
+    def tick(self) -> str | None:
+        """Chamado a cada ~1 s. Devolve uma mensagem quando a taxa muda."""
+        agora = time.monotonic()
+        if self.limitador.total_429 != self._ultimo_429:
+            self._ultimo_429 = self.limitador.total_429
+            self._estavel_desde = agora
+            if agora - self._ultimo_corte > 20:  # um corte por rajada de 429
+                self._ultimo_corte = agora
+                self.cortes += 1
+                self.taxa = max(self.TAXA_MIN, self.taxa * self.FATOR_CORTE)
+                self._aplicar()
+                return f"429 recebido: taxa reduzida para {self.taxa:.0f} req/s"
+            return None
+        if self.taxa < self.teto and agora - self._estavel_desde >= self.SOBE_APOS_S:
+            self._estavel_desde = agora
+            self.taxa = min(self.teto, self.taxa * self.FATOR_SOBE)
+            self._aplicar()
+            return f"sem 429 há {self.SOBE_APOS_S} s: taxa elevada para {self.taxa:.0f} req/s"
+        return None
+
+
 def baixar_tudo(turno: int, ufs: list[str], taxa: float, threads: int, banco: BancoBU) -> None:
     pleito, eleicao = PLEITOS[turno], ELEICOES[turno]
-    tse_client.limitador.taxa = taxa
-    tse_client.limitador.capacidade = max(1.0, taxa)
+    adaptador = Adaptador(taxa)
+    threads = threads or min(128, max(8, int(taxa * 0.4)))  # ~0,4 conexão por req/s (latência ~0,3 s)
     dec = Decodificador()
     todas = listar_secoes(pleito, ufs)
     feitas = banco.chaves()
     pendentes = [c for c in todas if c not in feitas]
-    log.info("%d seções listadas, %d já no banco, %d a baixar (≈%.0f min a %.0f req/s)",
-             len(todas), len(todas) - len(pendentes), len(pendentes), len(pendentes) * 2 / taxa / 60, taxa)
+    log.info("%d seções listadas, %d já no banco, %d a baixar (≈%.0f min a %.0f req/s; teto %.0f, %d threads)",
+             len(todas), len(todas) - len(pendentes), len(pendentes), len(pendentes) * 2 / adaptador.taxa / 60,
+             adaptador.taxa, taxa, threads)
     if not pendentes:
         return
     lote: list[dict] = []
     lock = threading.Lock()
     ok = err = 0
     t0 = time.time()
+    fim = threading.Event()
+
+    def monitor():
+        while not fim.wait(1.0):
+            msg = adaptador.tick()
+            if msg:
+                log.info(msg)
+    threading.Thread(target=monitor, name="adaptador", daemon=True).start()
 
     def tarefa(chave):
         nonlocal ok, err
@@ -231,7 +286,8 @@ def baixar_tudo(turno: int, ufs: list[str], taxa: float, threads: int, banco: Ba
                     if ok % 1000 == 0:
                         dt = time.time() - t0
                         restam = len(pendentes) - ok - err
-                        log.info("%d ok, %d erro(s), %.1f seções/s, faltam %d (≈%s)", ok, err, ok / dt, restam,
+                        log.info("%d ok, %d erro(s), %.1f seções/s, taxa %.0f req/s, %d x 429, faltam %d (≈%s)",
+                                 ok, err, ok / dt, adaptador.taxa, tse_client.limitador.total_429, restam,
                                  str(timedelta(seconds=int(restam / max(ok / dt, 0.01)))))
                 banco.limpar_falha(chave)
                 return
@@ -249,11 +305,15 @@ def baixar_tudo(turno: int, ufs: list[str], taxa: float, threads: int, banco: Ba
             err += 1
         banco.falha(chave, "429 persistente")
 
-    with ThreadPoolExecutor(max_workers=threads) as ex:
-        list(ex.map(tarefa, pendentes))
-    with lock:
-        banco.gravar(lote)
-    log.info("concluído: %d ok, %d erro(s) em %s", ok, err, str(timedelta(seconds=int(time.time() - t0))))
+    try:
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            list(ex.map(tarefa, pendentes))
+    finally:
+        fim.set()
+        with lock:
+            banco.gravar(lote)
+    log.info("concluído: %d ok, %d erro(s) em %s (taxa final %.0f req/s, %d corte(s) por 429)", ok, err,
+             str(timedelta(seconds=int(time.time() - t0))), adaptador.taxa, adaptador.cortes)
 
 
 # ------------------------------------------------------------------ exportação
@@ -285,9 +345,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--turno", type=int, choices=(1, 2), default=2)
     ap.add_argument("--ufs", help="lista separada por vírgula (padrão: todas)")
-    ap.add_argument("--taxa", type=float, default=25.0,
-                    help="requisições por segundo ao TSE (padrão 25; 30 req/s por 2 min passaram sem 429, 70 req/s geraram bloqueio)")
-    ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--taxa", type=float, default=50.0,
+                    help="TETO de requisições/s ao TSE (padrão 50). Começa em até 50, cai pela metade a cada 429 e sobe "
+                         "25%% a cada 60 s sem 429, até o teto. Medido em 26/10: 100 req/s por 30 s e 30 req/s por "
+                         "2 min sem 429; 70 req/s por ~2 min bloqueou ~6 min.")
+    ap.add_argument("--threads", type=int, default=0, help="conexões simultâneas (padrão: automático, ~0,4 × taxa)")
     ap.add_argument("--exportar", action="store_true", help="não baixa; só exporta o banco para CSV")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()

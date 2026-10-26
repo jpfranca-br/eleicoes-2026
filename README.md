@@ -144,12 +144,13 @@ O arquivo-urna do TSE publica, por seção, o boletim de urna em ASN.1/BER (`bu.
 ```bash
 pip install -r requirements.txt            # inclui asn1tools
 python baixar_bu.py --ufs AC               # teste pequeno (~3 min)
-nohup python baixar_bu.py > /tmp/bu.log 2>&1 &   # país inteiro: ~1 milhão de requisições, ~11 h a 25 req/s
+nohup python baixar_bu.py > /tmp/bu.log 2>&1 &   # país inteiro: ~1 milhão de requisições; ~5,5 h a 50 req/s
+nohup python baixar_bu.py --taxa 300 > /tmp/bu.log 2>&1 &   # deixa o script procurar o teto real (adaptativo)
 python baixar_bu.py --exportar             # gera data/2t_bu/secoes_bu.csv (com colunas *_brasilia)
 python analisar_fechamento.py --evento encerramento --intervalo 10
 ```
 
-Medições de 26/10/2026: 30 req/s por 2 min sem nenhum 429; 70 req/s geraram bloqueio de ~6 min. Padrão `--taxa 25`. Seções agregadas (`nsp` no `cs.json`) não têm BU próprio: os votos delas estão na seção principal. Conversão para Brasília: AC +2 h; AM, RR, RO, MT, MS +1 h; demais 0; exterior (ZZ) fica na hora local do país e sai das janelas por padrão (`--incluir-exterior` para incluir).
+Medições de 26/10/2026: 30 req/s por 2 min e 100 req/s por 30 s sem nenhum 429; 70 req/s por ~2 min geraram bloqueio de ~6 min (o limite parece ser por volume numa janela de minutos, não só por taxa instantânea). `--taxa` é um **teto**: o script começa em até 50 req/s, corta pela metade ao receber 429, e sobe 25 % a cada 60 s sem 429 até o teto. Então `--taxa 300` significa "descubra o limite real, sem passar de 300"; o log mostra cada mudança de taxa e o total de 429. Padrão `--taxa 50` (cada seção são 2 requisições, ambas contadas). Seções agregadas (`nsp` no `cs.json`) não têm BU próprio: os votos delas estão na seção principal. Conversão para Brasília: AC +2 h; AM, RR, RO, MT, MS +1 h; demais 0; exterior (ZZ) fica na hora local do país e sai das janelas por padrão (`--incluir-exterior` para incluir).
 
 ## Linux: firewall e serviço
 
