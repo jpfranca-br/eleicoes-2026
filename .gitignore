@@ -15,3 +15,6 @@ data/*.txt
 data/*.png
 
 # mantidos no repositório: data/1t/ (1º turno por seção), data/geo/, data/mun_config.json
+
+# boletins de urna baixados por baixar_bu.py (banco gitignorado acima; export CSV grande)
+data/*_bu/

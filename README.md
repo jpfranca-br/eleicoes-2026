@@ -135,7 +135,21 @@ Saída (exemplo):
 17:10:00 até 17:19:59 -     4 599 seções -     1 087 208 votos
 ```
 
-No 2º turno a fonte é o snapshot nacional do TSE gravado a cada 30 s (`st` = seções totalizadas, `tv` = votos, acumulados); cada janela é a diferença entre o último snapshot antes dela e o último dentro dela. Por isso a resolução real é de 30 s e o horário é o do feed do TSE (hora de Brasília). No 1º turno a fonte é o boletim de urna de cada seção (`DT_BU_RECEBIDO`), com precisão de segundos. "Votos" = comparecimento (inclui brancos e nulos).
+Fontes possíveis (`--fonte`): `bu` (boletins de urna baixados por `baixar_bu.py`, com o horário real de cada seção), `snapshots` (2º turno: snapshot nacional do TSE gravado a cada 30 s durante a apuração; só recebimento, resolução de 30 s) e `bweb` (1º turno: `DT_BU_RECEBIDO` de `data/1t`). Com `--fonte bu`, `--evento` escolhe o horário: `encerramento` (último voto na seção, padrão), `emissao` (BU emitido pela urna), `abertura` ou `recebimento` (entrada na totalização). "Votos" = comparecimento (inclui brancos e nulos).
+
+### Horário real de fechamento das seções: `baixar_bu.py`
+
+O arquivo-urna do TSE publica, por seção, o boletim de urna em ASN.1/BER (`bu.dat`, ~1,5 KB) com abertura, encerramento e emissão na **hora local da urna**, além do recebimento na totalização (no `aux.json`). `baixar_bu.py` lista as seções pelo `cs.json` de cada UF, baixa `aux.json` + `bu.dat`, decodifica com `spec/bu.asn1` (especificação do TSE, versão v2 usada em 2026) e grava tudo em `data/bu_{turno}t.db` (binário bruto + campos decodificados). É resumível e respeita o limite do TSE.
+
+```bash
+pip install -r requirements.txt            # inclui asn1tools
+python baixar_bu.py --ufs AC               # teste pequeno (~3 min)
+nohup python baixar_bu.py > /tmp/bu.log 2>&1 &   # país inteiro: ~1 milhão de requisições, ~11 h a 25 req/s
+python baixar_bu.py --exportar             # gera data/2t_bu/secoes_bu.csv (com colunas *_brasilia)
+python analisar_fechamento.py --evento encerramento --intervalo 10
+```
+
+Medições de 26/10/2026: 30 req/s por 2 min sem nenhum 429; 70 req/s geraram bloqueio de ~6 min. Padrão `--taxa 25`. Seções agregadas (`nsp` no `cs.json`) não têm BU próprio: os votos delas estão na seção principal. Conversão para Brasília: AC +2 h; AM, RR, RO, MT, MS +1 h; demais 0; exterior (ZZ) fica na hora local do país e sai das janelas por padrão (`--incluir-exterior` para incluir).
 
 ## Linux: firewall e serviço
 

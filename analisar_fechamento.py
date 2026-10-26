@@ -1,17 +1,21 @@
-"""Seções e votos que entraram na totalização por janela de tempo (padrão: 10 minutos).
+"""Seções e votos por janela de tempo (padrão: 10 minutos), segundo o horário escolhido.
 
-2º turno (padrão): usa os snapshots nacionais do TSE gravados em data/apuracao.db durante a apuração
-    (campos st = seções totalizadas e tv = votos, acumulados). Cada janela mostra o que foi
-    acrescentado entre o último snapshot anterior ao início da janela e o último dentro dela.
-1º turno: usa data/1t/secoes_{UF}.csv (horário de recebimento de cada seção e comparecimento).
+Fontes:
+  bu        boletins de urna baixados por baixar_bu.py (data/bu_{turno}t.db): horário real por seção.
+            --evento escolhe o horário: encerramento (último voto na seção), emissao (BU emitido pela urna),
+            abertura (primeiro voto) ou recebimento (entrada na totalização). Os três primeiros são hora local
+            da urna e são convertidos para Brasília por UF; o exterior (ZZ) fica de fora deles.
+  snapshots 2º turno: snapshots nacionais do TSE gravados em data/apuracao.db durante a apuração (st = seções
+            totalizadas, tv = votos, acumulados; resolução de 30 s). Só horário de recebimento.
+  bweb      1º turno: data/1t/secoes_{UF}.csv (DT_BU_RECEBIDO por seção). Só horário de recebimento.
+Padrão: bu se o banco existir; senão snapshots (2º turno) ou bweb (1º turno).
 
 Uso:
-  python analisar_fechamento.py                  # 2º turno, janelas de 10 min
-  python analisar_fechamento.py --turno 1        # 1º turno
-  python analisar_fechamento.py --intervalo 5    # janelas de 5 min
-  python analisar_fechamento.py --detalhe        # acrescenta válidos, Flavio e Lula
-  python analisar_fechamento.py --csv saida.csv  # grava também em CSV
-  python analisar_fechamento.py --db /opt/eleicoes/data/apuracao.db
+  python analisar_fechamento.py                              # 2º turno, encerramento, janelas de 10 min
+  python analisar_fechamento.py --evento recebimento         # entrada na totalização
+  python analisar_fechamento.py --fonte snapshots            # força a fonte dos snapshots
+  python analisar_fechamento.py --turno 1 --fonte bweb       # 1º turno pelo bweb
+  python analisar_fechamento.py --intervalo 5 --detalhe --csv saida.csv
 """
 from __future__ import annotations
 
@@ -56,6 +60,31 @@ def janelas_2t(db: Path, intervalo: int) -> pd.DataFrame:
     return out[(out[["secoes", "votos"]] != 0).any(axis=1) | (out.index == 0)]
 
 
+def janelas_bu(turno: int, intervalo: int, evento: str, incluir_exterior: bool) -> pd.DataFrame:
+    import baixar_bu
+    db = baixar_bu.caminho_banco(turno)
+    if not db.exists():
+        sys.exit(f"banco de boletins não encontrado: {db} (rode baixar_bu.py --turno {turno})")
+    df = baixar_bu.BancoBU(db).dataframe()
+    if df.empty:
+        sys.exit("banco de boletins vazio")
+    col = {"encerramento": "dt_encerramento", "emissao": "dt_emissao", "abertura": "dt_abertura",
+           "recebimento": "dt_recebido"}[evento]
+    ts = pd.to_datetime(df[col], errors="coerce")
+    if evento != "recebimento":  # hora local da urna -> Brasília
+        ts = ts + pd.to_timedelta(df["uf"].map(baixar_bu.OFFSET_UF).fillna(0).astype(int), unit="h")
+        if not incluir_exterior:
+            ts = ts.where(df["uf"] != "ZZ")
+    df = df.assign(ts=ts).dropna(subset=["ts"])
+    df["vv"] = df["v22"] + df["v13"]
+    df["janela"] = df["ts"].dt.floor(f"{intervalo}min")
+    g = df.groupby("janela").agg(secoes=("secao", "size"), votos=("comparecimento", "sum"), validos=("vv", "sum"),
+                                 v22=("v22", "sum"), v13=("v13", "sum")).reset_index()
+    g.insert(0, "inicio", g.pop("janela"))
+    g.insert(1, "fim", g["inicio"] + pd.Timedelta(minutes=intervalo) - pd.Timedelta(seconds=1))
+    return g
+
+
 def janelas_1t(intervalo: int) -> pd.DataFrame:
     import primeiro_turno
     df = primeiro_turno.carregar()
@@ -77,12 +106,27 @@ def main() -> None:
     ap.add_argument("--db", type=Path, default=config.DB_PATH, help="banco do 2º turno (padrão data/apuracao.db)")
     ap.add_argument("--detalhe", action="store_true", help="mostra também válidos, Flavio (22) e Lula (13)")
     ap.add_argument("--csv", type=Path, help="grava a tabela em CSV")
+    ap.add_argument("--fonte", choices=("bu", "snapshots", "bweb"), help="padrão: bu se existir o banco de boletins")
+    ap.add_argument("--evento", choices=("encerramento", "emissao", "abertura", "recebimento"), default="encerramento",
+                    help="horário considerado (só com --fonte bu; as outras fontes só têm recebimento)")
+    ap.add_argument("--incluir-exterior", action="store_true", help="fonte bu: inclui ZZ na hora local do país")
     args = ap.parse_args()
 
-    tab = janelas_2t(args.db, args.intervalo) if args.turno == 2 else janelas_1t(args.intervalo)
-    fonte = ("snapshots nacionais do TSE (feed a cada 30 s) em " + str(args.db)) if args.turno == 2 \
-        else "boletins de urna por seção (DT_BU_RECEBIDO) em data/1t"
-    print(f"{args.turno}º turno · janelas de {args.intervalo} min · fonte: {fonte}\n")
+    import baixar_bu
+    fonte = args.fonte or ("bu" if baixar_bu.caminho_banco(args.turno).exists()
+                           else ("snapshots" if args.turno == 2 else "bweb"))
+    if fonte == "bu":
+        tab = janelas_bu(args.turno, args.intervalo, args.evento, args.incluir_exterior)
+        exterior = "na hora local" if args.incluir_exterior else "excluído"
+        descr = f"boletins de urna ({baixar_bu.caminho_banco(args.turno)}) · evento: {args.evento}" + \
+            ("" if args.evento == "recebimento" else f" (hora de Brasília; exterior {exterior})")
+    elif fonte == "snapshots":
+        tab = janelas_2t(args.db, args.intervalo)
+        descr = f"snapshots nacionais do TSE (feed a cada 30 s) em {args.db} · evento: recebimento"
+    else:
+        tab = janelas_1t(args.intervalo)
+        descr = "boletins de urna por seção (DT_BU_RECEBIDO) em data/1t · evento: recebimento"
+    print(f"{args.turno}º turno · janelas de {args.intervalo} min · fonte: {descr}\n")
     for r in tab.itertuples(index=False):
         linha = f"{r.inicio:%H:%M:%S} até {r.fim:%H:%M:%S} - {fmt(r.secoes):>9} seções - {fmt(r.votos):>13} votos"
         if args.detalhe:
