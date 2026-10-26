@@ -116,41 +116,78 @@ O replay usa um banco separado (`data/replay.db`) e sempre começa do zero. A p�
 | `--replay`, `--velocidade`, `--inicio HH:MM`, `--forcar-2-candidatos`, `--lote`, `--loop` | simulação |
 | `--debug` | log detalhado |
 
-## Análise depois da apuração: seções e votos por janela de tempo
+## Análise depois da apuração: horário das seções e votos por janela de tempo
 
-`analisar_fechamento.py` lê a base gravada durante a noite e mostra quantas seções e votos entraram na totalização em cada janela (padrão 10 min):
+Dois scripts independentes do painel. O primeiro baixa o boletim de urna de cada seção; o segundo monta a tabela de seções e votos por janela de tempo (10 min por padrão) a partir do horário que você escolher.
 
-```bash
-python analisar_fechamento.py                       # 2º turno, a partir de data/apuracao.db
-python analisar_fechamento.py --turno 1             # 1º turno, a partir de data/1t (horário real por seção)
-python analisar_fechamento.py --intervalo 5 --detalhe   # janelas de 5 min; acrescenta válidos, Flavio e Lula
-python analisar_fechamento.py --csv fechamento.csv  # grava também em CSV
-python analisar_fechamento.py --db /caminho/apuracao.db
-```
+### Passo 1 · `baixar_bu.py`: boletins de urna por seção (horário real)
 
-Saída (exemplo):
+**O que faz.** Para cada seção do turno, baixa do arquivo-urna do TSE o `aux.json` (hash da pasta e horário de recebimento na totalização) e o `bu.dat` (boletim de urna em ASN.1/BER, ~1,5 KB), decodifica com a especificação oficial em `spec/bu.asn1` e grava em `data/bu_{turno}t.db` o binário bruto e os campos decodificados:
 
-```
-17:00:00 até 17:09:59 -     1 075 seções -       280 731 votos
-17:10:00 até 17:19:59 -     4 599 seções -     1 087 208 votos
-```
+| Campo | Significado | Fuso |
+|---|---|---|
+| `dt_abertura` | primeiro voto na seção | hora local da urna |
+| `dt_encerramento` | último voto na seção (o "fechamento real") | hora local da urna |
+| `dt_emissao` | boletim emitido pela urna | hora local da urna |
+| `dt_recebido` | entrada do boletim na totalização | Brasília |
+| `aptos`, `comparecimento`, `v22`, `v13`, `brancos`, `nulos` | votos da seção para presidente | — |
 
-Fontes possíveis (`--fonte`): `bu` (boletins de urna baixados por `baixar_bu.py`, com o horário real de cada seção), `snapshots` (2º turno: snapshot nacional do TSE gravado a cada 30 s durante a apuração; só recebimento, resolução de 30 s) e `bweb` (1º turno: `DT_BU_RECEBIDO` de `data/1t`). Com `--fonte bu`, `--evento` escolhe o horário: `encerramento` (último voto na seção, padrão), `emissao` (BU emitido pela urna), `abertura` ou `recebimento` (entrada na totalização). "Votos" = comparecimento (inclui brancos e nulos).
-
-### Horário real de fechamento das seções: `baixar_bu.py`
-
-O arquivo-urna do TSE publica, por seção, o boletim de urna em ASN.1/BER (`bu.dat`, ~1,5 KB) com abertura, encerramento e emissão na **hora local da urna**, além do recebimento na totalização (no `aux.json`). `baixar_bu.py` lista as seções pelo `cs.json` de cada UF, baixa `aux.json` + `bu.dat`, decodifica com `spec/bu.asn1` (especificação do TSE, versão v2 usada em 2026) e grava tudo em `data/bu_{turno}t.db` (binário bruto + campos decodificados). É resumível e respeita o limite do TSE.
+**Como usar.**
 
 ```bash
-pip install -r requirements.txt            # inclui asn1tools
-python baixar_bu.py --ufs AC               # teste pequeno (~3 min)
-nohup python baixar_bu.py > /tmp/bu.log 2>&1 &   # país inteiro: ~1 milhão de requisições; ~5,5 h a 50 req/s
-nohup python baixar_bu.py --taxa 300 > /tmp/bu.log 2>&1 &   # deixa o script procurar o teto real (adaptativo)
-python baixar_bu.py --exportar             # gera data/2t_bu/secoes_bu.csv (com colunas *_brasilia)
-python analisar_fechamento.py --evento encerramento --intervalo 10
+pip install -r requirements.txt                 # inclui asn1tools
+python baixar_bu.py --ufs AC                    # teste pequeno: 2.270 seções em ~1,5 min
+nohup python baixar_bu.py > /tmp/bu.log 2>&1 &  # país inteiro (~499 mil seções, ~1 milhão de requisições)
+tail -f /tmp/bu.log                             # progresso a cada 1.000 seções, com estimativa de término
+python baixar_bu.py                             # rodar de novo = continua de onde parou (só baixa o que falta)
+python baixar_bu.py --exportar                  # só gera data/2t_bu/secoes_bu.csv a partir do banco
+python baixar_bu.py --turno 1                   # mesmo processo para o 1º turno (pleito 3220)
 ```
 
-Medições de 26/10/2026: 30 req/s por 2 min e 100 req/s por 30 s sem nenhum 429; 70 req/s por ~2 min geraram bloqueio de ~6 min (o limite parece ser por volume numa janela de minutos, não só por taxa instantânea). `--taxa` é um **teto**: o script começa em até 50 req/s, corta pela metade ao receber 429, e sobe 25 % a cada 60 s sem 429 até o teto. Então `--taxa 300` significa "descubra o limite real, sem passar de 300"; o log mostra cada mudança de taxa e o total de 429. Padrão `--taxa 50` (cada seção são 2 requisições, ambas contadas). Seções agregadas (`nsp` no `cs.json`) não têm BU próprio: os votos delas estão na seção principal. Conversão para Brasília: AC +2 h; AM, RR, RO, MT, MS +1 h; demais 0; exterior (ZZ) fica na hora local do país e sai das janelas por padrão (`--incluir-exterior` para incluir).
+| Opção | Efeito |
+|---|---|
+| `--ufs AC,RR` | limita a essas UFs |
+| `--taxa N` | **teto** de requisições/s (padrão 50). Começa em até 50, corta pela metade ao receber 429 e sobe 25 % a cada 60 s sem 429, até o teto. `--taxa 300` = "ache o limite real sem passar de 300" |
+| `--threads N` | conexões simultâneas (padrão automático, ~0,4 × taxa) |
+| `--exportar` | não baixa; exporta o banco para CSV, com colunas `*_brasilia` já convertidas |
+| `--turno 1\|2` | turno (padrão 2) |
+
+**Tempo e limite do TSE.** Cada seção são 2 requisições. Medido em 26/10/2026: 100 req/s por 30 s e 30 req/s por 2 min sem nenhum 429; 70 req/s por ~2 min geraram bloqueio de ~6 min (o limite parece ser por volume numa janela de minutos). A 50 req/s o país inteiro leva ~5,5 h; o log mostra cada mudança de taxa e o total de 429. Seções agregadas (`nsp` no `cs.json`) não têm boletim próprio: os votos delas estão na seção principal. Conferência: os totais por UF batem exatamente com o JSON oficial (AC: Flavio 287.715, Lula 144.513, 453.654 votos).
+
+### Passo 2 · `analisar_fechamento.py`: seções e votos por janela
+
+**O que faz.** Agrupa as seções pelo horário escolhido em janelas de N minutos e soma seções e votos ("votos" = comparecimento, com brancos e nulos; `--detalhe` acrescenta válidos, Flavio e Lula).
+
+```bash
+python analisar_fechamento.py                                   # 2º turno, fechamento real, janelas de 10 min
+python analisar_fechamento.py --evento recebimento              # entrada na totalização
+python analisar_fechamento.py --evento emissao --intervalo 5    # emissão do boletim, janelas de 5 min
+python analisar_fechamento.py --detalhe --csv fechamento.csv    # com válidos/Flavio/Lula; grava CSV
+python analisar_fechamento.py --fonte snapshots                 # sem os boletins: usa data/apuracao.db
+python analisar_fechamento.py --turno 1                         # 1º turno (boletins, se baixados; senão bweb)
+```
+
+| Opção | Efeito |
+|---|---|
+| `--evento` | `encerramento` (padrão), `emissao`, `abertura` ou `recebimento`. Só a fonte `bu` tem os três primeiros |
+| `--fonte` | `bu` (boletins de `baixar_bu.py`; padrão se o banco existir), `snapshots` (2º turno: feed nacional gravado pelo painel a cada 30 s; só recebimento) ou `bweb` (1º turno: `DT_BU_RECEBIDO` de `data/1t`; só recebimento) |
+| `--intervalo N` | minutos por janela (padrão 10) |
+| `--detalhe` | acrescenta válidos, Flavio (22) e Lula (13) |
+| `--csv arquivo` | grava a tabela em CSV |
+| `--incluir-exterior` | fonte `bu`: inclui o exterior (ZZ) na hora local de cada país (por padrão fica fora dos eventos locais) |
+| `--db` | banco dos snapshots (padrão `data/apuracao.db`) |
+
+Saída (exemplo, Acre, 2º turno, `--evento encerramento`):
+
+```
+17:00:00 até 17:09:59 -     2 257 seções -       451 115 votos
+17:10:00 até 17:19:59 -        11 seções -         2 156 votos
+17:20:00 até 17:29:59 -         1 seções -           176 votos
+```
+
+**Fusos.** Os horários de abertura, encerramento e emissão vêm na hora local da urna e são convertidos para Brasília por UF (AC +2 h; AM, RR, RO, MT, MS +1 h; demais 0). No exterior cada país tem seu fuso, por isso ZZ sai das janelas desses eventos por padrão. O recebimento já é hora de Brasília e inclui o exterior.
+
+**Por que as curvas diferem.** O encerramento mostra quando a votação terminou de fato (no Acre, 2.257 das 2.270 seções entre 17:00 e 17:09 de Brasília). O recebimento mostra quando o boletim entrou na totalização (no Acre, de 17:05 a 21:17, com pico entre 19:30 e 20:00). A diferença é o tempo de transmissão e processamento.
 
 ## Linux: firewall e serviço
 
@@ -223,6 +260,7 @@ Cabeçalho: relógio com a hora atual de Brasília (sincronizado com o servidor;
 | 1º turno por seção | `https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/buweb/bweb_1t_{UF}_051020261403.zip` |
 | 2º turno (Brasil/UF/município) | `https://resultados.tse.jus.br/oficial/ele2026/6258/dados/{uf}/{uf}[{mun}]-c0001-e006258-u.json` |
 | Lista de seções com boletim | `https://resultados.tse.jus.br/oficial/ele2026/arquivo-urna/3221/config/{uf}/{uf}-p003221-cs.json` |
+| Boletim de urna por seção | `.../arquivo-urna/3221/dados/{uf}/{mun}/{zona}/{secao}/p003221-{uf}-m{mun}-z{zona}-s{secao}-aux.json` e `.../{hash}/{nome}-bu.dat` |
 | Municípios (código TSE → IBGE) | `https://resultados.tse.jus.br/oficial/ele2026/6258/config/mun-e006258-cm.json` |
 | Malhas | `https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR?intrarregiao=municipio|UF&qualidade=minima` |
 
@@ -241,6 +279,9 @@ Carga na rede em modo real: 29 requisições a cada 30 s (nacional/UFs), ~5.760 
 
 ```
 app.py              servidor Flask + rotas /api/* + thread Calculadora (recalcula as respostas a cada 10 s)
+baixar_bu.py        baixa e decodifica os boletins de urna por seção (arquivo-urna) -> data/bu_{turno}t.db
+analisar_fechamento.py  seções e votos por janela de tempo (encerramento, emissão, abertura, recebimento)
+spec/bu.asn1        especificação ASN.1 do boletim de urna (TSE, v2 de 2026)
 config.py           constantes (códigos de eleição, URLs, cores, total de eleitores)
 tse_client.py       HTTP + parse dos JSON do TSE
 primeiro_turno.py   download/processamento do 1º turno por seção
